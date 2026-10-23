@@ -43,62 +43,70 @@ def http_get(url: str, params: dict | None = None, timeout: int = 15) -> Any:
         return json.loads(resp.read().decode())
 
 
-# --- Market data via Bybit (works from US / GitHub Actions) ---
-# Binance.com geoblocks US IPs including GitHub Actions runners.
-# Bybit's public v5 API has the same USDT pair universe and no geoblock.
-# We keep the function names `binance_*` for compatibility but route to
-# Bybit by default; actual Binance stays available as a fallback for
-# self-hosted runners outside the US.
+# --- Market data via Coinbase Exchange (US-based, always reachable) ---
+# Binance.com AND Bybit both return 403 from GitHub Actions US runners.
+# Coinbase is a US exchange so its public API has no geo-restrictions.
+# Interval: Coinbase uses seconds (900 = 15min, 3600 = 1h, 86400 = 1d).
+# Pair format: BTC-USD (dash, USD quote). We normalize to BTCUSDT shape
+# for compatibility with the rest of the scanner.
 
-BYBIT_BASE = "https://api.bybit.com"
+COINBASE_BASE = "https://api.exchange.coinbase.com"
 _BINANCE_HOSTS = ["https://api-gcp.binance.com", "https://api.binance.com"]
-_PRIMARY_SOURCE_CACHE: dict[str, str] = {}
+
+# Top liquid Coinbase USD pairs — hardcoded to avoid 150+ stats calls per scan.
+# Keep BTC/ETH/majors + enough altcoins for setup variety.
+COINBASE_TOP_USD = [
+    "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD",
+    "ADA-USD", "AVAX-USD", "LINK-USD", "DOT-USD", "LTC-USD",
+    "SHIB-USD", "ATOM-USD", "UNI-USD", "BCH-USD", "NEAR-USD",
+    "APT-USD", "ARB-USD", "OP-USD", "FIL-USD", "INJ-USD",
+    "SUI-USD", "SEI-USD", "TIA-USD", "FET-USD", "RENDER-USD",
+    "HBAR-USD", "VET-USD", "AAVE-USD", "MKR-USD", "ICP-USD",
+]
+
+_COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 
 
-_BYBIT_INTERVAL = {"1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
-                   "1h": "60", "2h": "120", "4h": "240", "6h": "360",
-                   "12h": "720", "1d": "D", "1w": "W", "1M": "M"}
+def _to_binance_sym(coinbase_id: str) -> str:
+    """BTC-USD -> BTCUSDT (so downstream scanner labels look consistent)."""
+    return coinbase_id.replace("-USD", "USDT").replace("-", "")
 
 
-def _bybit_klines(symbol: str, interval: str, limit: int) -> list[list]:
-    """Return Binance-shaped klines rows [open_time, o, h, l, c, v, ...] via Bybit v5."""
-    bi = _BYBIT_INTERVAL.get(interval, "15")
-    data = http_get(f"{BYBIT_BASE}/v5/market/kline",
-                    {"category": "spot", "symbol": symbol, "interval": bi, "limit": limit})
-    rows = data.get("result", {}).get("list", [])
-    # Bybit returns newest first; invert and reshape to Binance layout
+def _to_coinbase_product(binance_sym: str) -> str:
+    """BTCUSDT -> BTC-USD. Falls back to as-is if already dash-format."""
+    if "-" in binance_sym:
+        return binance_sym
+    for suffix in ("USDT", "USDC", "USD"):
+        if binance_sym.endswith(suffix):
+            base = binance_sym[: -len(suffix)]
+            return f"{base}-USD"
+    return binance_sym
+
+
+def _coinbase_candles(product_id: str, interval: str, limit: int) -> list[list]:
+    gran = _COINBASE_GRAN.get(interval, 900)
+    rows = http_get(f"{COINBASE_BASE}/products/{product_id}/candles", {"granularity": gran})
+    # Coinbase returns newest-first: [time_seconds, low, high, open, close, volume]
     out = []
-    for r in reversed(rows):
-        # Bybit: [startTime, open, high, low, close, volume, turnover]
-        out.append([int(r[0]), r[1], r[2], r[3], r[4], r[5], int(r[0]) + 1, r[6], 0, 0, 0, 0])
+    for r in list(reversed(rows))[-limit:]:
+        time_s, low, high, open_, close, volume = r
+        out.append([
+            int(time_s) * 1000,          # open_time ms
+            float(open_), float(high), float(low), float(close), float(volume),
+            int(time_s) * 1000 + gran * 1000,  # close_time ms
+            0, 0, 0, 0, 0,                 # padding to match Binance 12-column layout
+        ])
     return out
 
 
-def _bybit_top_pairs(quote: str, top_n: int, min_vol_usd: float) -> list[str]:
-    data = http_get(f"{BYBIT_BASE}/v5/market/tickers", {"category": "spot"})
-    rows = data.get("result", {}).get("list", [])
-    picked = []
-    for t in rows:
-        sym = t.get("symbol", "")
-        if not sym.endswith(quote):
-            continue
-        if any(x in sym for x in ("UP", "DOWN", "BULL", "BEAR", "3L", "3S", "5L", "5S")):
-            continue
-        vol = float(t.get("turnover24h", 0) or 0)  # already in USD-ish quote
-        if vol < min_vol_usd:
-            continue
-        picked.append((sym, vol))
-    picked.sort(key=lambda x: x[1], reverse=True)
-    return [s for s, _ in picked[:top_n]]
-
-
 def binance_klines(symbol: str, interval: str = "15m", limit: int = 100) -> list[list]:
-    """Market klines; routes to Bybit by default (US-friendly)."""
+    """Market klines; routes to Coinbase (US-based, reliable from GitHub Actions)."""
     import sys as _sys
+    product = _to_coinbase_product(symbol)
     try:
-        return _bybit_klines(symbol, interval, limit)
+        return _coinbase_candles(product, interval, limit)
     except Exception as e:
-        print(f"[market] bybit kline for {symbol} failed: {e}; trying Binance mirrors", file=_sys.stderr)
+        print(f"[market] coinbase kline for {product} failed: {e}; trying Binance mirrors", file=_sys.stderr)
     import urllib.error
     for host in _BINANCE_HOSTS:
         try:
@@ -114,34 +122,28 @@ def binance_klines(symbol: str, interval: str = "15m", limit: int = 100) -> list
 
 
 def binance_top_pairs(quote: str = "USDT", top_n: int = 50, min_vol_usd: float = 5e7) -> list[str]:
-    """Top pairs by 24h quote volume; routes to Bybit by default."""
+    """Top pairs by 24h USD volume via Coinbase stats on a curated universe.
+
+    We query the stats endpoint for each of ~30 known-liquid pairs (one HTTP
+    request each — Coinbase's public rate limit is 10/s). This takes ~3 s but
+    avoids maintaining a dynamic pair list.
+    """
     import sys as _sys
-    try:
-        pairs = _bybit_top_pairs(quote, top_n, min_vol_usd)
-        if pairs:
-            print(f"[market] bybit: {len(pairs)} {quote} pairs above ${min_vol_usd:,.0f} volume", file=_sys.stderr)
-            return pairs
-    except Exception as e:
-        print(f"[market] bybit tickers failed: {e}", file=_sys.stderr)
-    # Fallback to Binance mirrors (works on self-hosted non-US runners)
-    import urllib.error
-    for host in _BINANCE_HOSTS:
+    rows: list[tuple[str, float]] = []
+    for product in COINBASE_TOP_USD[:top_n * 2]:  # fetch 2× top_n candidates
         try:
-            tickers = http_get(f"{host}/api/v3/ticker/24hr")
-            rows = [t for t in tickers
-                    if t.get("symbol", "").endswith(quote)
-                    and float(t.get("quoteVolume", 0) or 0) >= min_vol_usd
-                    and not any(x in t.get("symbol", "") for x in ("UP", "DOWN", "BULL", "BEAR"))]
-            rows.sort(key=lambda t: float(t.get("quoteVolume", 0) or 0), reverse=True)
-            print(f"[market] binance mirror {host}: {len(rows)} pairs", file=_sys.stderr)
-            return [t["symbol"] for t in rows[:top_n]]
-        except urllib.error.HTTPError as e:
-            if e.code in (451, 403, 418, 429):
-                continue
-            raise
-        except Exception:
+            stats = http_get(f"{COINBASE_BASE}/products/{product}/stats")
+            last = float(stats.get("last", 0) or 0)
+            vol_base = float(stats.get("volume", 0) or 0)
+            vol_usd = last * vol_base
+            if vol_usd >= min_vol_usd:
+                rows.append((_to_binance_sym(product), vol_usd))
+        except Exception as e:
+            print(f"[market] coinbase stats {product}: {e}", file=_sys.stderr)
             continue
-    return []
+    rows.sort(key=lambda x: x[1], reverse=True)
+    print(f"[market] coinbase: {len(rows)} pairs above ${min_vol_usd:,.0f} volume", file=_sys.stderr)
+    return [s for s, _ in rows[:top_n]]
 
 
 # --- Simple TA helpers (no external deps) ---
