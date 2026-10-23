@@ -1,0 +1,21 @@
+name: News-Bot Diagnose
+
+# Debug: prüft Bot-Token + Chat-ID.
+# Zeigt an welchem Bot der Token gehört und ob die Chat-ID stimmt.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Diagnose bot token + chat id
+        env:
+          TELEGRAM_NEWS_BOT_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_TOKEN }}
+          TELEGRAM_NEWS_CHAT_ID: ${{ secrets.TELEGRAM_NEWS_CHAT_ID }}
+        run: cd tools && python3 newsbot_diagnose.py
