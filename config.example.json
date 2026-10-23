@@ -1,9 +1,9 @@
 {
   "universe": {
-    "exchange": "binance",
-    "quote": "USDT",
-    "top_n": 50,
-    "min_volume_usd_24h": 50000000
+    "exchange": "coinbase",
+    "quote": "USD",
+    "top_n": 30,
+    "min_volume_usd_24h": 5000000
   },
   "scanner": {
     "timeframe": "15m",
