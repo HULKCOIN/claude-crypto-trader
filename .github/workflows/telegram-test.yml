@@ -1,0 +1,40 @@
+name: Telegram Connectivity Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send test message via Telegram Bot API
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+            echo "::error::TELEGRAM_BOT_TOKEN secret is empty"
+            exit 1
+          fi
+          if [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "::error::TELEGRAM_CHAT_ID secret is empty"
+            exit 1
+          fi
+          echo "Chat ID length: ${#TELEGRAM_CHAT_ID} chars (should be 9–12 for user IDs)"
+          echo "Sending test message..."
+          RESPONSE=$(curl -sS -X POST \
+            "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"chat_id\": \"$TELEGRAM_CHAT_ID\",
+              \"text\": \"🚀 *HULKCOIN Crypto Trader* — Connectivity Test\n\n✅ GitHub Actions → Telegram Bot works\n✅ Chat ID verified\n\nDu kannst jetzt vollständig loslegen.\",
+              \"parse_mode\": \"Markdown\"
+            }")
+          echo "Response: $RESPONSE"
+          if echo "$RESPONSE" | grep -q '"ok":true'; then
+            echo "::notice::✅ Message delivered — check your Telegram"
+          else
+            echo "::error::❌ Telegram API rejected the request:"
+            echo "$RESPONSE"
+            exit 1
+          fi
