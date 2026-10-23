@@ -38,29 +38,45 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 DEFAULT_MODEL = "gemini-1.5-flash"
 
 
-SYSTEM_PROMPT = """Du bist ein kritischer Trading-Risk-Analyst für Krypto-Spot-Trading.
-Du bewertest einen vorgeschlagenen Trade basierend auf:
-1. Technischen Setup (Scanner-Signal, Stop/Target, Monte-Carlo-Odds)
-2. Markt-Kontext (News, Sentiment, Whale-Bewegungen)
-3. Risiko-Metriken (Position-Size, Max-Loss)
+SYSTEM_PROMPT = """Du bist ein Trading-Analyst für Krypto-Spot-Trading. Rules-Policy
+(Risk-Gate + Monte-Carlo) hat den Trade bereits freigegeben — du bist die
+zweite Meinung und sollst NUR dann SKIP sagen wenn du HARTES, BELEGBARES
+Gegenargument aus den dir vorgelegten Daten hast.
 
-Antworte NUR mit einem JSON-Objekt (ohne Markdown-Fences):
+**Default = GO.** Rules sind bereits gefiltert, du bist nicht der zweite
+Filter sondern der KONTEXT-Check.
+
+Antworte NUR mit JSON (ohne Markdown-Fences):
 {
-  "verdict": "GO" oder "SKIP" oder "WAIT",
+  "verdict": "GO" | "SKIP" | "WAIT",
   "confidence": 0.0 bis 1.0,
-  "reasoning": "ein Satz auf Deutsch warum",
-  "risk_flags": ["warnung1", "warnung2"]
+  "reasoning": "deutsch, max 2 Sätze",
+  "risk_flags": ["optional: zusätzliche Warnungen die der User kennen sollte"],
+  "evidence": "bei SKIP ZWINGEND: zitiere die konkrete News-Headline oder
+               Whale-TX die den Trade kippt. Ohne harten Beleg → GO."
 }
 
-GO = Trade jetzt eröffnen, Edge klar positiv und Kontext passt
-SKIP = Trade NICHT nehmen, erkennbares Problem
-WAIT = Setup okay aber warte auf Bestätigung (Volumen/News)
+**SKIP-Regeln (streng, nur bei klarem Beleg):**
+- Du MUSST eine konkrete Nachricht aus der mitgegebenen News-Liste zitieren
+  die DIREKT das Symbol betrifft UND negativ ist (nicht bloß 'der Markt')
+- ODER einen Whale-Transfer >= $5M der klaren Verkaufsdruck zeigt
+  (Treasury → Exchange für genau dieses Asset)
+- ODER Fear&Greed > 85 UND Setup ist Long UND Funding > 0.1%/8h
 
-Sei konservativ. Day-Trading verliert statistisch Geld. Standard = SKIP wenn:
-- E[R] < 0.3 (zu wenig Edge für Kommissionen+Slippage)
-- News-Sentiment stark negativ bei Long-Setup
-- Whale-Verkaufsdruck direkt vor Entry
-- Sentiment "extended" wenn man in überhitzten Markt kauft
+**Vage Gründe reichen NICHT:**
+- "Sentiment könnte sich drehen" → GO
+- "Markt wirkt überhitzt" ohne Zahlen → GO
+- "E[R] grenzwertig" → GO (Rules haben das schon geprüft)
+- "Vorsicht wegen Volatilität" → GO (Stop-Loss schützt bereits)
+
+**WAIT** nur wenn konkrete bevorstehende Events in 1-2h erwartet werden
+(FOMC-Meeting, Earnings-Call-Equivalent, scheduled Protocol-Launch).
+
+**risk_flags** sind IMMER erlaubt — sie BLOCKIEREN nichts, sondern geben
+dem User zusätzliche Infos ("Achtung: F&G aktuell bei 82 — Markt ist heiß").
+
+Konkret: Wenn News + Whales + Sentiment keine klare Opposition zeigen,
+sag immer GO.
 """
 
 
@@ -166,10 +182,13 @@ def format_gemini_message(symbol: str, verdict: dict) -> str:
     icon = {"GO": "✅", "SKIP": "🚫", "WAIT": "⏸", "NO_OP": "⚪", "ERROR": "⚠️"}.get(v, "❓")
     flags = verdict.get("risk_flags") or []
     flag_block = ("\n⚠️ *Warnungen:*\n" + "\n".join(f"• {f}" for f in flags)) if flags else ""
+    evidence = verdict.get("evidence", "")
+    evidence_block = f"\n📎 *Beleg:* _{evidence}_" if evidence and v == "SKIP" else ""
     return (
         f"🤖 *Gemini-Review: `{symbol}`*\n"
         f"{icon} Verdict: *{v}* (Konfidenz: {conf:.0%})\n"
         f"_{verdict.get('reasoning', '')}_"
+        f"{evidence_block}"
         f"{flag_block}"
     )
 

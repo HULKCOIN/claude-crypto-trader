@@ -204,12 +204,20 @@ def process_one(sig: dict, sims: int) -> dict | None:
                                 timeout=15).read()
                     except Exception as e:
                         print(f"[auto] gemini notify failed: {e}", file=sys.stderr)
-            # If Gemini says SKIP → skip (LLM-Veto)
+            # LLM-Veto NUR mit harten Belegen — vage Reasoning wird ignoriert
             if gemini_verdict.get("verdict") == "SKIP":
-                return {"status": "skip",
-                        "reason": f"Gemini SKIP: {gemini_verdict.get('reasoning', '')}",
-                        "plan": plan, "tm": tm, "risk": risk, "size": size,
-                        "gemini": gemini_verdict}
+                evidence = (gemini_verdict.get("evidence") or "").strip()
+                if evidence and len(evidence) > 20:
+                    # Konkreter Beleg vorhanden → Veto respektieren
+                    return {"status": "skip",
+                            "reason": f"Gemini SKIP mit Beleg: {evidence[:200]}",
+                            "plan": plan, "tm": tm, "risk": risk, "size": size,
+                            "gemini": gemini_verdict}
+                else:
+                    # SKIP ohne Beleg wird zu WARNING downgraded — Trade läuft
+                    print(f"[auto] Gemini SKIP ohne Beleg ignoriert — Trade läuft weiter", file=sys.stderr)
+                    gemini_verdict["downgraded"] = True
+                    gemini_verdict["verdict"] = "GO_WITH_WARNING"
         except Exception as e:
             print(f"[auto] gemini review error: {e}", file=sys.stderr)
 
