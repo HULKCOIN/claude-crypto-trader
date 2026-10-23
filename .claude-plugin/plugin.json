@@ -1,0 +1,21 @@
+{
+  "name": "claude-crypto-trader",
+  "version": "0.1.0",
+  "description": "24/7 Crypto Trading Framework - 11 Claude Code Skills for scanning, signal generation and risk-gated execution across Binance/Coinbase/Kraken/Bybit via CCXT. Analysis-only by default.",
+  "author": "HULKCOIN",
+  "homepage": "https://github.com/HULKCOIN/claude-crypto-trader",
+  "license": "MIT",
+  "skills": [
+    "skills/crypto-scanner",
+    "skills/crypto-news",
+    "skills/crypto-entry",
+    "skills/crypto-exit",
+    "skills/crypto-timemachine",
+    "skills/crypto-risk",
+    "skills/crypto-budget",
+    "skills/crypto-broker",
+    "skills/crypto-alerts",
+    "skills/crypto-onchain",
+    "skills/crypto-sentiment"
+  ]
+}

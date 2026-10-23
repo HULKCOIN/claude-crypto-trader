@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets & local config
+.env
+.env.*
+!.env.example
+config.json
+*.key
+*.pem
+secrets/
+.secrets/
+
+# Trading runtime data (never commit live state)
+bridge/signal_queue.jsonl
+bridge/trades.jsonl
+bridge/positions.json
+logs/
+*.log
+data/cache/
+data/klines/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# OS
+Thumbs.db

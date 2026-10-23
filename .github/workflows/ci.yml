@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Import check
+        run: |
+          cd tools && python3 -c "import _common, scanner, timemachine, news, entry, exit, risk, budget, broker, alerts, onchain, sentiment"
+      - name: Bridge import check
+        run: python3 -c "from bridge import signal_queue, hermes_bridge, executor"
+      - name: Scanner smoke (BTCUSDT only, no network-flaky top-N)
+        run: cd tools && python3 scanner.py --symbol BTCUSDT --json || true

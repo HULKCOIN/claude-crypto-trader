@@ -1,0 +1,53 @@
+{
+  "universe": {
+    "exchange": "binance",
+    "quote": "USDT",
+    "top_n": 50,
+    "min_volume_usd_24h": 50000000
+  },
+  "scanner": {
+    "timeframe": "15m",
+    "lookback_bars": 96,
+    "setups": ["breakout", "flag", "oversold_bounce"],
+    "min_atr_pct": 0.5
+  },
+  "timemachine": {
+    "simulations": 10000,
+    "history_days": 60,
+    "session_bars": 24
+  },
+  "risk": {
+    "max_daily_loss_pct": 2.0,
+    "max_open_positions": 3,
+    "max_correlation": 0.75,
+    "flat_by_utc": null
+  },
+  "budget": {
+    "account_equity_usd": 1000,
+    "risk_per_trade_pct": 0.5,
+    "sizing_method": "fixed_fractional"
+  },
+  "broker": {
+    "exchange": "binance",
+    "mode": "paper",
+    "paper_balance_usd": 1000
+  },
+  "alerts": {
+    "channels": ["stdout"],
+    "telegram_bot_token_env": "TELEGRAM_BOT_TOKEN",
+    "telegram_chat_id_env": "TELEGRAM_CHAT_ID",
+    "discord_webhook_env": "DISCORD_WEBHOOK_URL"
+  },
+  "news": {
+    "provider": "cryptopanic",
+    "api_token_env": "CRYPTOPANIC_TOKEN",
+    "lookback_minutes": 60
+  },
+  "onchain": {
+    "whale_alert_token_env": "WHALE_ALERT_TOKEN",
+    "min_transfer_usd": 1000000
+  },
+  "sentiment": {
+    "fear_greed_endpoint": "https://api.alternative.me/fng/"
+  }
+}

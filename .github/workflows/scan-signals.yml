@@ -1,0 +1,87 @@
+name: 24/7 Crypto Scan
+
+# Crypto markets never close — this cron runs every 15 minutes forever.
+# Each run executes the full analysis pipeline and commits new signals
+# to bridge/signal_queue.jsonl so the queue is readable from anywhere.
+#
+# IMPORTANT: this workflow NEVER places real orders. It writes signals.
+# An external agent (your Hermes bridge, your laptop, your VPS) decides
+# what to do with them.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Single symbol to scan (optional)"
+        required: false
+        type: string
+
+concurrency:
+  group: scan-signals
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Copy example config if none committed
+        run: |
+          if [ ! -f config.json ]; then
+            cp config.example.json config.json
+          fi
+
+      - name: Run scanner
+        env:
+          CRYPTOPANIC_TOKEN: ${{ secrets.CRYPTOPANIC_TOKEN }}
+        run: |
+          cd tools
+          if [ -n "${{ inputs.symbol }}" ]; then
+            python3 scanner.py --symbol "${{ inputs.symbol }}" || true
+          else
+            python3 scanner.py || true
+          fi
+
+      - name: Pull news
+        env:
+          CRYPTOPANIC_TOKEN: ${{ secrets.CRYPTOPANIC_TOKEN }}
+        run: cd tools && python3 news.py || true
+
+      - name: Market sentiment
+        run: cd tools && python3 sentiment.py || true
+
+      - name: Watch alerts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: cd tools && python3 alerts.py watch || true
+
+      - name: Commit new signals
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # bridge/signal_queue.jsonl is in .gitignore; commit a hashed snapshot only
+          mkdir -p data/snapshots
+          if [ -f bridge/signal_queue.jsonl ]; then
+            tail -n 500 bridge/signal_queue.jsonl > data/snapshots/latest.jsonl
+            git add data/snapshots/latest.jsonl
+            if ! git diff --staged --quiet; then
+              git commit -m "chore: snapshot signals $(date -u +%FT%TZ)"
+              git push
+            fi
+          fi
