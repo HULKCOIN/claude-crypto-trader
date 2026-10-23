@@ -102,21 +102,22 @@ def format_news(s: dict) -> str:
     )
 
 
-# Scanner wird NICHT mehr hier formatiert — pipeline_once.py pusht die
-# vollständige Trade-Empfehlung mit Entry/SL/TP/Odds für jedes Signal.
+# Scanner → pipeline_once.py pusht die vollständige Trade-Empfehlung.
+# News → NICHT mehr standalone gepusht (zu viel Rauschen). Gemini bekommt
+#        sie weiter als Kontext für Trade-Entscheidungen.
+# Whales → bleiben, da action-relevant (Verkaufsdruck / Akkumulation beeinflusst
+#          offene Positionen).
 FORMATTERS = {
     "crypto-onchain": format_onchain,
-    "crypto-news": format_news,
 }
 
 
 def should_push(sig: dict, args) -> bool:
     src = sig.get("source", "")
-    # Scanner signals werden von pipeline_once.py gepusht (mit vollen Trade-Infos)
+    # Scanner → pipeline_once.py pusht
+    # News → nicht mehr standalone (zu viel Rauschen, siehe FORMATTERS Kommentar)
     if src == "crypto-onchain":
         return (sig.get("amount_usd") or 0) >= args.min_onchain_usd
-    if src == "crypto-news":
-        return sig.get("severity") == "high" if args.news_high_only else True
     return False
 
 

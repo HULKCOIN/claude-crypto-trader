@@ -9,8 +9,15 @@ name: 24/7 Crypto Scan
 # what to do with them.
 
 on:
+  # Cron läuft alle 5 Minuten für schnelle Reaktion.
+  # ⚠️ ACHTUNG: Für private Repos ist das 288× pro Tag = ~6400 Min/Monat,
+  # weit über dem Free Tier Limit von 2000 Min/Monat.
+  # Lösungen (eine davon wählen):
+  #   1) Repo PUBLIC machen → unlimitierte Minuten (Code sichtbar, Secrets bleiben secret)
+  #   2) GitHub Pro Abo ($4/Monat, 3000 Min — reicht nicht ganz)
+  #   3) Auf GCP VM migrieren (deploy/README.md) → 0 € + Live-Commands
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       symbol:
@@ -35,6 +42,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip                      # Cache pip deps → spart ~12s pro Run
 
       - name: Install deps
         run: pip install -r requirements.txt

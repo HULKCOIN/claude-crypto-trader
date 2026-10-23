@@ -166,12 +166,24 @@ def process_one(sig: dict, sims: int) -> dict | None:
     # 5b. Optional: Gemini-LLM-Review als zweite Meinung (nur wenn GEMINI_API_KEY)
     gemini_verdict = None
     if gemini_review and os.environ.get("GEMINI_API_KEY"):
+        # Kontext für Gemini: aktuelle News + Sentiment + Whales für das Symbol
+        symbol_base = plan["symbol"].replace("USDT", "").replace("USD", "")
+        all_sigs = load_signals()
+        recent_news = [s for s in all_sigs if s.get("source") == "crypto-news"
+                       and (s.get("severity") == "high"
+                            or symbol_base.lower() in str(s.get("headline", "")).lower())][:10]
+        recent_whales = [s for s in all_sigs if s.get("source") == "crypto-onchain"
+                         and (s.get("amount_usd") or 0) >= 500_000][:5]
+        sentiment = next((s for s in all_sigs if s.get("source") == "crypto-sentiment"), {})
         proposal_bundle = {
             "scanner_hit": sig,
             "plan": plan,
             "timemachine": tm,
             "size": size,
             "risk": risk,
+            "news": recent_news,
+            "onchain": recent_whales,
+            "sentiment": sentiment,
         }
         try:
             gemini_verdict = gemini_review(proposal_bundle)
