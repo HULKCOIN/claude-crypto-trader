@@ -100,30 +100,41 @@ def cmd_approve(args) -> int:
 
 
 def _ccxt_exchange(cfg: dict):
-    """Instantiate the right CCXT exchange for market=spot|futures and mode=paper|testnet|live."""
+    """Instantiate the right CCXT exchange.
+
+    market: spot | futures
+    mode:   paper   — local sim, no API
+            demo    — Binance Demo Mode (https://demo-api.binance.com), uses regular
+                      BINANCE_API_KEY / _SECRET generated inside the main binance.com
+                      account via "Binance Demo Trading" → API Key Management
+            testnet — old testnet.binance.vision (spot) / testnet.binancefuture.com
+                      (futures), separate keys with _TESTNET_* names
+            live    — REAL money, needs live_confirmed=true + 3 gates
+    """
     import ccxt
-    base = cfg["broker"]["exchange"]        # "binance"
+    base = cfg["broker"]["exchange"]
     market = cfg["broker"].get("market", "spot")
     mode = cfg["broker"]["mode"]
 
-    # Pick the right CCXT class
     if base == "binance" and market == "futures":
-        ccxt_id = "binanceusdm"              # USDT-M perpetuals (testnet.binancefuture.com)
+        ccxt_id = "binanceusdm"
     elif base == "binance":
-        ccxt_id = "binance"                   # Spot (testnet.binance.vision)
+        ccxt_id = "binance"
     else:
-        ccxt_id = base                        # bybit, kraken, okx etc.
+        ccxt_id = base
 
     prefix = base.upper()
-    if mode == "testnet":
-        if market == "futures":
-            key = os.environ.get(f"{prefix}_FUTURES_TESTNET_API_KEY") or os.environ.get(f"{prefix}_TESTNET_API_KEY")
-            secret = os.environ.get(f"{prefix}_FUTURES_TESTNET_API_SECRET") or os.environ.get(f"{prefix}_TESTNET_API_SECRET")
-            missing = f"{prefix}_FUTURES_TESTNET_API_KEY / _SECRET (from testnet.binancefuture.com)"
-        else:
-            key = os.environ.get(f"{prefix}_SPOT_TESTNET_API_KEY") or os.environ.get(f"{prefix}_TESTNET_API_KEY")
-            secret = os.environ.get(f"{prefix}_SPOT_TESTNET_API_SECRET") or os.environ.get(f"{prefix}_TESTNET_API_SECRET")
-            missing = f"{prefix}_SPOT_TESTNET_API_KEY / _SECRET (from testnet.binance.vision)"
+
+    # Pick env var names and the human-readable "missing" message
+    if mode == "demo":
+        key = os.environ.get(f"{prefix}_API_KEY")
+        secret = os.environ.get(f"{prefix}_API_SECRET")
+        missing = f"{prefix}_API_KEY / _SECRET (from binance.com → Demo Trading → API Key Management)"
+    elif mode == "testnet":
+        suf = "FUTURES_TESTNET" if market == "futures" else "SPOT_TESTNET"
+        key = os.environ.get(f"{prefix}_{suf}_API_KEY") or os.environ.get(f"{prefix}_TESTNET_API_KEY")
+        secret = os.environ.get(f"{prefix}_{suf}_API_SECRET") or os.environ.get(f"{prefix}_TESTNET_API_SECRET")
+        missing = f"{prefix}_{suf}_API_KEY / _SECRET"
     else:
         key = os.environ.get(f"{prefix}_API_KEY")
         secret = os.environ.get(f"{prefix}_API_SECRET")
@@ -132,10 +143,27 @@ def _ccxt_exchange(cfg: dict):
     if not (key and secret):
         raise RuntimeError(f"GATE FAIL: env var missing — {missing}")
 
-    ex = getattr(ccxt, ccxt_id)({"apiKey": key, "secret": secret, "enableRateLimit": True,
-                                   "options": {"defaultType": "future" if market == "futures" else "spot"}})
+    ex = getattr(ccxt, ccxt_id)({
+        "apiKey": key,
+        "secret": secret,
+        "enableRateLimit": True,
+        "options": {"defaultType": "future" if market == "futures" else "spot"},
+    })
+
     if mode == "testnet":
         ex.set_sandbox_mode(True)
+    elif mode == "demo" and base == "binance":
+        # Binance Demo Mode uses dedicated hosts; override CCXT's URL map.
+        # Docs: https://developers.binance.com/en/docs/products/spot/demo-mode/general-info
+        ex.urls["api"] = {
+            "sapi": "https://demo-api.binance.com/sapi",
+            "sapiV2": "https://demo-api.binance.com/sapi",
+            "sapiV3": "https://demo-api.binance.com/sapi",
+            "sapiV4": "https://demo-api.binance.com/sapi",
+            "public": "https://demo-api.binance.com/api",
+            "private": "https://demo-api.binance.com/api",
+            "v1": "https://demo-api.binance.com/api/v1",
+        }
     return ex
 
 

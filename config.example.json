@@ -30,9 +30,9 @@
   "broker": {
     "exchange": "binance",
     "market": "spot",
-    "_market_options": "spot (testnet.binance.vision) | futures (testnet.binancefuture.com — USDT-M perpetuals)",
-    "mode": "testnet",
-    "_mode_options": "paper (local sim) | testnet (real exchange, fake money) | live (REAL money — needs 3 gates)",
+    "_market_options": "spot | futures",
+    "mode": "demo",
+    "_mode_options": "paper (local sim) | demo (Binance Demo @ demo-api.binance.com, uses BINANCE_API_KEY/_SECRET) | testnet (testnet.binance.vision, separate _TESTNET_* keys) | live (REAL money)",
     "live_confirmed": false,
     "paper_balance_usd": 1000
   },

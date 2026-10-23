@@ -31,39 +31,40 @@ Total time: ~10 min.
 
 ---
 
-## 2. Binance Testnet — Paper trading on real matching engine (5 min)
+## 2. Binance Demo Mode — Paper trading inside your real account (5 min)
 
-**Decide first: Spot or Futures?**
+**Binance Demo Mode** lets you paper-trade from inside your regular binance.com
+account. One API key works for BOTH Spot and Futures. The balance is visible
+in your normal Binance UI, resettable from there.
 
-| | Spot | Futures |
-|---|---|---|
-| URL | `testnet.binance.vision` | `testnet.binancefuture.com` |
-| What | Buy & hold tokens, no leverage | USDT-M perpetuals with leverage |
-| Start capital | TBTC + TUSDT | TUSDT only |
-| Risk | Max loss = position size | Can lose more than deposit |
-| Recommended for | First steps | After ≥3 months of spot practice |
+Docs: https://developers.binance.com/en/docs/products/spot/demo-mode/general-info
 
-### Spot Testnet (recommended start)
-1. **https://testnet.binance.vision** → "Log In with GitHub" (fastest)
-2. Click your profile → "API Keys"
-3. "Generate HMAC_SHA256 Key" → label: `claude-crypto-trader`
-4. **Copy BOTH keys immediately** (they're only shown once)
-5. GitHub secrets:
-   - `BINANCE_SPOT_TESTNET_API_KEY` = API Key
-   - `BINANCE_SPOT_TESTNET_API_SECRET` = Secret Key
-6. In `config.json`: `"broker": { "market": "spot", "mode": "testnet" }`
+### Create the Demo API Key
+1. Log in to **binance.com** with your real account
+2. Open **"Binance Demo Trading"** (search in the menu)
+3. Go to **"API Key Management"** inside the demo view
+4. **"Create API Key"** — pick a label like `claude-crypto-trader`
+5. Copy BOTH:
+   - **API Key** → `BINANCE_API_KEY`
+   - **Secret Key** → `BINANCE_API_SECRET`
+   (Secrets are only shown once.)
+6. GitHub Secrets page → add BOTH as separate secrets with those exact names.
+7. In `config.json`: `"broker": { "market": "spot", "mode": "demo" }`
+   (or `"market": "futures"` if you prefer).
 
-### Futures Testnet (later)
-1. **https://testnet.binancefuture.com** → register (separate from Spot!)
-2. "API" tab → "Create API Key"
-3. GitHub secrets:
-   - `BINANCE_FUTURES_TESTNET_API_KEY`
-   - `BINANCE_FUTURES_TESTNET_API_SECRET`
-4. In `config.json`: `"broker": { "market": "futures", "mode": "testnet" }`
+The broker will then route to `https://demo-api.binance.com`. Orders show up
+in your Binance Demo portfolio exactly like real orders — just with fake money.
+
+### Alternative: old Binance Testnet (NOT needed if you use Demo Mode)
+If you ever want the old testnet.binance.vision instead (different account,
+different keys), set `mode: "testnet"` and use `_SPOT_TESTNET_*` or
+`_FUTURES_TESTNET_*` env vars. Most users should just stick with Demo Mode.
 
 ### For real trading later (never on GitHub Actions!)
-- Keys go **only on your own VPS** as `BINANCE_API_KEY` + `BINANCE_API_SECRET`
+- SAME env var names (`BINANCE_API_KEY` + `_SECRET`) but from REGULAR API
+  (not the Demo Trading page) on your own VPS
 - Set `config.broker.mode = "live"` AND `live_confirmed = true`
+- Three gates still enforced per order
 
 ---
 
@@ -109,10 +110,10 @@ Nothing else to pay for.
 Required secrets (minimum for full functionality):
 - [ ] `TELEGRAM_BOT_TOKEN`
 - [ ] `TELEGRAM_CHAT_ID`
-- [ ] `BINANCE_SPOT_TESTNET_API_KEY`
-- [ ] `BINANCE_SPOT_TESTNET_API_SECRET`
+- [ ] `BINANCE_API_KEY` (from Binance Demo Trading → API Key Management)
+- [ ] `BINANCE_API_SECRET` (same screen)
 
-Optional (adds on-chain whale alerts):
+Optional (adds on-chain whale alerts for Ethereum):
 - [ ] `ETHERSCAN_API_KEY`
 
 That's it. 4 required + 1 optional = **5 secrets, all free, zero credit card.**
