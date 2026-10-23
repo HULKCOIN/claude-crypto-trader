@@ -73,17 +73,34 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: cd tools && python3 alerts.py watch || true
 
-      - name: Commit new signals
+      - name: Push new high-quality signals to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: cd tools && python3 push_signals.py --min-quality 0.4 --min-onchain-usd 1000000 || true
+
+      - name: Auto-trader pipeline (scanner → exit → tm → risk → budget → broker)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          BROKER_MODE_HINT: paper
+        run: python3 bridge/pipeline_once.py --min-quality 0.5 --sims 2000 --max-per-run 3 || true
+
+      - name: Commit new signals + pipeline state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # bridge/signal_queue.jsonl is in .gitignore; commit a hashed snapshot only
           mkdir -p data/snapshots
           if [ -f bridge/signal_queue.jsonl ]; then
             tail -n 500 bridge/signal_queue.jsonl > data/snapshots/latest.jsonl
-            git add data/snapshots/latest.jsonl
-            if ! git diff --staged --quiet; then
-              git commit -m "chore: snapshot signals $(date -u +%FT%TZ)"
-              git push
-            fi
+          fi
+          # Commit the snapshot plus the dedup cursors (state persists across runs)
+          git add data/snapshots/latest.jsonl 2>/dev/null || true
+          git add data/snapshots/last_push_ts.txt 2>/dev/null || true
+          git add data/snapshots/last_pipeline_ts.txt 2>/dev/null || true
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: snapshot signals + pipeline cursors $(date -u +%FT%TZ)"
+            git push
           fi
