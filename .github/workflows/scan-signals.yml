@@ -85,7 +85,12 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_NEWS_BOT_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_TOKEN }}
+          TELEGRAM_NEWS_CHAT_ID: ${{ secrets.TELEGRAM_NEWS_CHAT_ID }}
         run: cd tools && python3 push_signals.py --min-quality 0.4 --min-onchain-usd 1000000 || true
+
+      - name: News history recorder (für wöchentliche Impact-Analyse)
+        run: cd tools && python3 news_history.py record || true
 
       - name: Auto-trader pipeline (scanner → exit → tm → risk → budget → broker)
         env:
@@ -116,6 +121,7 @@ jobs:
           git add data/snapshots/last_push_ts.txt 2>/dev/null || true
           git add data/snapshots/last_pipeline_ts.txt 2>/dev/null || true
           git add data/snapshots/pnl_stats.json 2>/dev/null || true
+          git add data/snapshots/news_history.jsonl 2>/dev/null || true
           # bridge/auto_trades.jsonl: keep it committed so we can track across runs
           mkdir -p data/snapshots
           if [ -f bridge/auto_trades.jsonl ]; then

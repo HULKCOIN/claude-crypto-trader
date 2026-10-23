@@ -32,19 +32,31 @@ def write_last_ts(ts: str) -> None:
     LAST_PUSH.write_text(ts)
 
 
-def tg_send(text: str) -> bool:
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat = os.environ.get("TELEGRAM_CHAT_ID")
+def tg_send(text: str, channel: str = "trades") -> bool:
+    """Send to the trades channel or the news channel.
+
+    channel='trades' → TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID (your main)
+    channel='news'   → TELEGRAM_NEWS_BOT_TOKEN + TELEGRAM_NEWS_CHAT_ID
+                       (falls nicht gesetzt, fällt auf 'trades' zurück)
+    """
+    if channel == "news":
+        token = os.environ.get("TELEGRAM_NEWS_BOT_TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN")
+        chat = os.environ.get("TELEGRAM_NEWS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID")
+    else:
+        token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        chat = os.environ.get("TELEGRAM_CHAT_ID")
     if not (token and chat):
-        print("[push] TELEGRAM_* env missing — skipping")
+        print(f"[push] TELEGRAM_* env missing for channel={channel} — skipping")
         return False
-    data = urlencode({"chat_id": chat, "text": text[:4000], "parse_mode": "Markdown"}).encode()
+    data = urlencode({"chat_id": chat, "text": text[:4000],
+                      "parse_mode": "Markdown",
+                      "disable_web_page_preview": "true"}).encode()
     try:
         with urlopen(Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data), timeout=15) as r:
             res = json.loads(r.read().decode())
             return res.get("ok", False)
     except Exception as e:
-        print(f"[push] send failed: {e}", file=sys.stderr)
+        print(f"[push] send failed ({channel}): {e}", file=sys.stderr)
         return False
 
 
@@ -102,23 +114,36 @@ def format_news(s: dict) -> str:
     )
 
 
-# Scanner → pipeline_once.py pusht die vollständige Trade-Empfehlung.
-# News → NICHT mehr standalone gepusht (zu viel Rauschen). Gemini bekommt
-#        sie weiter als Kontext für Trade-Entscheidungen.
-# Whales → bleiben, da action-relevant (Verkaufsdruck / Akkumulation beeinflusst
-#          offene Positionen).
+def should_push(sig: dict, args) -> bool:
+    src = sig.get("source", "")
+    # Scanner → pipeline_once.py pusht in Trade-Kanal
+    if src == "crypto-onchain":
+        return (sig.get("amount_usd") or 0) >= args.min_onchain_usd
+    if src == "crypto-news":
+        # News nur wenn News-Kanal konfiguriert → nicht spam im Trade-Kanal
+        has_news_channel = bool(os.environ.get("TELEGRAM_NEWS_CHAT_ID"))
+        if not has_news_channel:
+            return False
+        return sig.get("severity") == "high" if args.news_high_only else True
+    return False
+
+
+def channel_for(sig: dict) -> str:
+    """Routet nach Kanal. News → 'news', Whales/Scanner → 'trades'."""
+    if sig.get("source") == "crypto-news":
+        return "news"
+    return "trades"
+
+
+# Scanner → pipeline_once.py pusht die vollständige Trade-Empfehlung in 'trades'.
+# News → wenn News-Kanal gesetzt, geht in 'news' statt 'trades' (kein Spam).
+# Whales → bleiben in 'trades' (action-relevant für offene Positionen).
 FORMATTERS = {
     "crypto-onchain": format_onchain,
+    "crypto-news": format_news,
 }
 
 
-def should_push(sig: dict, args) -> bool:
-    src = sig.get("source", "")
-    # Scanner → pipeline_once.py pusht
-    # News → nicht mehr standalone (zu viel Rauschen, siehe FORMATTERS Kommentar)
-    if src == "crypto-onchain":
-        return (sig.get("amount_usd") or 0) >= args.min_onchain_usd
-    return False
 
 
 def load_signals() -> list[dict]:
@@ -168,12 +193,13 @@ def main() -> int:
         except Exception as e:
             print(f"[push] format error on {src}: {e}", file=sys.stderr)
             continue
+        ch = channel_for(sig)
         if args.dry_run:
-            print(f"[dry-run] would push: {text[:80]}...")
+            print(f"[dry-run] would push to {ch}: {text[:80]}...")
             sent += 1
-        elif tg_send(text):
+        elif tg_send(text, channel=ch):
             sent += 1
-            print(f"[push] sent {src}:{sig.get('symbol')}")
+            print(f"[push] sent {src}:{sig.get('symbol')} → {ch}")
         ts = sig.get("ts", "")
         if ts > max_ts:
             max_ts = ts
