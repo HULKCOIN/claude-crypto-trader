@@ -16,6 +16,7 @@
     "skills/crypto-broker",
     "skills/crypto-alerts",
     "skills/crypto-onchain",
-    "skills/crypto-sentiment"
+    "skills/crypto-sentiment",
+    "skills/crypto-telegram"
   ]
 }

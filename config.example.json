@@ -29,8 +29,11 @@
   },
   "broker": {
     "exchange": "binance",
+    "market": "spot",
+    "_market_options": "spot (testnet.binance.vision) | futures (testnet.binancefuture.com — USDT-M perpetuals)",
     "mode": "testnet",
     "_mode_options": "paper (local sim) | testnet (real exchange, fake money) | live (REAL money — needs 3 gates)",
+    "live_confirmed": false,
     "paper_balance_usd": 1000
   },
   "alerts": {
@@ -40,13 +43,20 @@
     "discord_webhook_env": "DISCORD_WEBHOOK_URL"
   },
   "news": {
-    "provider": "cryptopanic",
-    "api_token_env": "CRYPTOPANIC_TOKEN",
+    "providers": ["coingecko-trending", "coindesk-rss", "cointelegraph-rss"],
+    "_note": "all free, no API key required",
     "lookback_minutes": 60
   },
   "onchain": {
-    "whale_alert_token_env": "WHALE_ALERT_TOKEN",
-    "min_transfer_usd": 1000000
+    "providers": ["blockchain.info", "etherscan"],
+    "etherscan_api_key_env": "ETHERSCAN_API_KEY",
+    "_note": "blockchain.info is keyless; etherscan free key at https://etherscan.io/myapikey (instant, no credit card)",
+    "min_transfer_usd": 500000
+  },
+  "telegram": {
+    "command_bot_enabled": true,
+    "allowed_chat_ids_env": "TELEGRAM_CHAT_ID",
+    "_note": "chat IDs allowed to issue /open /close /flat; use TELEGRAM_CHAT_ID (same as alert target)"
   },
   "sentiment": {
     "fear_greed_endpoint": "https://api.alternative.me/fng/"

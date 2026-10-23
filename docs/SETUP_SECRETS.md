@@ -1,124 +1,127 @@
-# Setup Secrets — step-by-step
+# Setup Secrets — step-by-step (all free, no credit card)
 
-All four signups below are **free, no credit card, no KYC**. Total time: ~15 minutes.
+Target page for every secret below:
+**https://github.com/HULKCOIN/claude-crypto-trader/settings/secrets/actions**
 
-Target: **https://github.com/HULKCOIN/claude-crypto-trader/settings/secrets/actions**
-→ "New repository secret" (one per entry below).
+Click **"New repository secret"** → fill Name + Value → **"Add secret"**.
 
----
-
-## 1. `CRYPTOPANIC_TOKEN` — News Monitor (2 min)
-
-1. Open **https://cryptopanic.com/developers/api/**
-2. Click **"Sign up"** (top right)
-3. Confirm your email
-4. On the API page, your token is displayed as `auth_token=xxxxxxxx...`
-5. Copy only the token value (everything after `auth_token=`)
-6. In GitHub → New secret:
-   - Name: `CRYPTOPANIC_TOKEN`
-   - Value: `<the token>`
-   - Save
-
-**Free tier**: 500 requests/day — our 15-min cron uses ~96/day. Plenty.
+Total time: ~10 min.
 
 ---
 
-## 2. `WHALE_ALERT_TOKEN` — On-chain Watcher (3 min)
-
-1. Open **https://whale-alert.io/signup**
-2. Enter email + password
-3. Confirm email
-4. Log in → go to **"API"** tab
-5. Click **"Create API Key"**, pick the **Free** plan
-6. Copy the key
-7. GitHub → New secret:
-   - Name: `WHALE_ALERT_TOKEN`
-   - Value: `<the key>`
-   - Save
-
-**Free tier**: 10 req/min, 1 hour history, min $500k transfers. For bigger whales + more history ($20/month plan), filter min $1M in `config.json`.
-
----
-
-## 3. `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` — Push to Phone (5 min)
+## 1. `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` — Phone control (5 min)
 
 ### Create the bot
-1. Open Telegram, search for **`@BotFather`** → start chat
+1. Telegram → search **`@BotFather`** → start chat
 2. Send: `/newbot`
-3. Pick a name: e.g. `HULKCOIN Crypto Signals`
-4. Pick a username: e.g. `hulkcoin_signals_bot` (must end in `bot`)
-5. BotFather sends you a message with the token: `123456789:ABC-xyz...`
-6. GitHub → New secret:
-   - Name: `TELEGRAM_BOT_TOKEN`
-   - Value: `123456789:ABC-xyz...`
+3. Pick a name: `HULKCOIN Crypto Signals`
+4. Pick a username ending in `bot`: `hulkcoin_signals_bot`
+5. BotFather replies with your token: `123456789:ABC-xyz...`
+6. GitHub secret `TELEGRAM_BOT_TOKEN` = that token
 
 ### Get your chat ID
-1. In Telegram, **search for your new bot** by its username and start it (send any message, e.g. "hi")
-2. Open in a browser: `https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates`
-   (replace `<YOUR_TOKEN>` with the full token from step 5)
-3. Find `"chat":{"id":123456789,` in the JSON response. That number is your chat ID.
-4. GitHub → New secret:
-   - Name: `TELEGRAM_CHAT_ID`
-   - Value: `123456789`
-
-Test: trigger the workflow manually and if an alert fires, your phone bings.
-
----
-
-## 4. Binance Testnet — Paper trading on real matching engine (5 min)
-
-Binance Testnet is **the gold standard** for crypto paper trading:
-- Real order book, real latency, real matching engine
-- Fake money (test USDT, test BTC)
-- Same API as live — your code is production-ready on day one
-
-### Get testnet keys
-1. Open **https://testnet.binance.vision**
-2. Click **"Log In with GitHub"** (top right) — fastest option
-3. Once in, click your profile → **"API Keys"**
-4. Click **"Generate HMAC_SHA256 Key"**
-5. Give it a label like `claude-crypto-trader`
-6. Copy BOTH:
-   - **API Key** → goes to `BINANCE_TESTNET_API_KEY`
-   - **Secret Key** → goes to `BINANCE_TESTNET_API_SECRET`
-   (These are only shown ONCE. If you lose them, generate new keys.)
-7. GitHub → add BOTH secrets with those exact names.
-
-### Fund your testnet account
-- Testnet gives you free TUSDT / TBTC on signup (usually 100 BTC + lots of USDT).
-- If you ever "run out", refill at the testnet dashboard.
-
-### Switch broker mode to testnet
-`config.json` already defaults to `"mode": "testnet"` after this setup.
-
-### For live trading later (NOT on GitHub Actions, EVER)
-- Keys go **only** on your own VPS or laptop as `BINANCE_API_KEY` + `BINANCE_API_SECRET`
-- Set `config.broker.mode = "live"` AND `config.broker.live_confirmed = true`
-- Three gates still apply (risk pass + user yes + mode = live + confirmed flag)
+1. In Telegram, search your bot by its `@username` and press **Start** (or send "hi")
+2. Browser:
+   ```
+   https://api.telegram.org/bot<FULL_TOKEN>/getUpdates
+   ```
+   Replace `<FULL_TOKEN>` with the exact token. **No space, no slash** between `bot` and the token.
+3. In the JSON reply, find `"chat":{"id":12345678,`
+4. GitHub secret `TELEGRAM_CHAT_ID` = that number
 
 ---
 
-## Verify everything
+## 2. Binance Testnet — Paper trading on real matching engine (5 min)
 
-After adding the secrets, trigger the workflow manually:
+**Decide first: Spot or Futures?**
 
-**https://github.com/HULKCOIN/claude-crypto-trader/actions/workflows/scan-signals.yml**
-→ "Run workflow" → "Run"
+| | Spot | Futures |
+|---|---|---|
+| URL | `testnet.binance.vision` | `testnet.binancefuture.com` |
+| What | Buy & hold tokens, no leverage | USDT-M perpetuals with leverage |
+| Start capital | TBTC + TUSDT | TUSDT only |
+| Risk | Max loss = position size | Can lose more than deposit |
+| Recommended for | First steps | After ≥3 months of spot practice |
 
-In ~1 min:
-- News signals appear in `data/snapshots/latest.jsonl`
-- Whale signals appear (if any transfers > $1M happened)
-- Your Telegram should bing (if a price alert triggered)
-- Binance testnet is ready to accept paper orders
+### Spot Testnet (recommended start)
+1. **https://testnet.binance.vision** → "Log In with GitHub" (fastest)
+2. Click your profile → "API Keys"
+3. "Generate HMAC_SHA256 Key" → label: `claude-crypto-trader`
+4. **Copy BOTH keys immediately** (they're only shown once)
+5. GitHub secrets:
+   - `BINANCE_SPOT_TESTNET_API_KEY` = API Key
+   - `BINANCE_SPOT_TESTNET_API_SECRET` = Secret Key
+6. In `config.json`: `"broker": { "market": "spot", "mode": "testnet" }`
+
+### Futures Testnet (later)
+1. **https://testnet.binancefuture.com** → register (separate from Spot!)
+2. "API" tab → "Create API Key"
+3. GitHub secrets:
+   - `BINANCE_FUTURES_TESTNET_API_KEY`
+   - `BINANCE_FUTURES_TESTNET_API_SECRET`
+4. In `config.json`: `"broker": { "market": "futures", "mode": "testnet" }`
+
+### For real trading later (never on GitHub Actions!)
+- Keys go **only on your own VPS** as `BINANCE_API_KEY` + `BINANCE_API_SECRET`
+- Set `config.broker.mode = "live"` AND `live_confirmed = true`
 
 ---
 
-## What NEVER goes into GitHub secrets
+## 3. `ETHERSCAN_API_KEY` — ON-chain whale watcher (optional, 2 min)
 
-- Real exchange API keys (live mode)
-- Private keys of any wallet
-- Database/service passwords
-- OAuth client secrets
+**Fully free, instant, no credit card:**
+1. **https://etherscan.io/register** → sign up
+2. Confirm email → log in
+3. Top right profile → "API Keys" → "Add"
+4. Label: `claude-crypto-trader` → create
+5. GitHub secret `ETHERSCAN_API_KEY` = the key
 
-GitHub Actions logs are not encrypted; a compromised workflow could print any
-secret. Keep live-trading keys on a trusted host you control.
+Without this: BTC whale watcher (blockchain.info, keyless) still works.
+With this: ETH + ERC-20 flows into/out of exchange hot wallets.
+
+Free tier: 5 calls/sec, 100 000 calls/day. More than enough.
+
+---
+
+## 4. News — No key needed!
+
+I switched news from CryptoPanic (paid) to free alternatives:
+- CoinGecko trending (no key, 30 req/min)
+- CoinDesk RSS (unlimited)
+- Cointelegraph RSS (unlimited)
+
+Nothing to configure. It just works.
+
+---
+
+## 5. Whale alerts — Alternative to Whale Alert (paid)
+
+Whale Alert dropped their free tier. We replaced it with:
+- **Blockchain.info** → BTC whale transfers (keyless, unlimited)
+- **Etherscan** → ETH/ERC-20 exchange flows (free key, see #3)
+
+Nothing else to pay for.
+
+---
+
+## Final checklist
+
+Required secrets (minimum for full functionality):
+- [ ] `TELEGRAM_BOT_TOKEN`
+- [ ] `TELEGRAM_CHAT_ID`
+- [ ] `BINANCE_SPOT_TESTNET_API_KEY`
+- [ ] `BINANCE_SPOT_TESTNET_API_SECRET`
+
+Optional (adds on-chain whale alerts):
+- [ ] `ETHERSCAN_API_KEY`
+
+That's it. 4 required + 1 optional = **5 secrets, all free, zero credit card.**
+
+---
+
+## Verify
+
+1. **https://github.com/HULKCOIN/claude-crypto-trader/actions/workflows/scan-signals.yml**
+2. "Run workflow" → "Run"
+3. In ~1 min, check `data/snapshots/latest.jsonl` on main
+4. If `TELEGRAM_*` secrets are set and the scanner finds a setup, your phone should ping

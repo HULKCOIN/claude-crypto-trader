@@ -46,8 +46,6 @@ jobs:
           fi
 
       - name: Run scanner
-        env:
-          CRYPTOPANIC_TOKEN: ${{ secrets.CRYPTOPANIC_TOKEN }}
         run: |
           cd tools
           if [ -n "${{ inputs.symbol }}" ]; then
@@ -56,9 +54,7 @@ jobs:
             python3 scanner.py || true
           fi
 
-      - name: Pull news
-        env:
-          CRYPTOPANIC_TOKEN: ${{ secrets.CRYPTOPANIC_TOKEN }}
+      - name: Pull news (CoinGecko + CoinDesk + Cointelegraph, no key)
         run: cd tools && python3 news.py || true
 
       - name: Market sentiment
@@ -66,7 +62,7 @@ jobs:
 
       - name: On-chain whale watcher
         env:
-          WHALE_ALERT_TOKEN: ${{ secrets.WHALE_ALERT_TOKEN }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
         run: cd tools && python3 onchain.py || true
 
       - name: Watch alerts

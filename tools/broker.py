@@ -99,22 +99,43 @@ def cmd_approve(args) -> int:
     return 0
 
 
-def _ccxt_exchange(exchange_id: str, mode: str):
-    """Instantiate a CCXT exchange, sandbox mode if testnet."""
+def _ccxt_exchange(cfg: dict):
+    """Instantiate the right CCXT exchange for market=spot|futures and mode=paper|testnet|live."""
     import ccxt
-    key_env_prefix = exchange_id.upper()
-    if mode == "testnet":
-        # Testnet keys usually have a dedicated prefix
-        key = os.environ.get(f"{key_env_prefix}_TESTNET_API_KEY") or os.environ.get(f"{key_env_prefix}_API_KEY")
-        secret = os.environ.get(f"{key_env_prefix}_TESTNET_API_SECRET") or os.environ.get(f"{key_env_prefix}_API_SECRET")
+    base = cfg["broker"]["exchange"]        # "binance"
+    market = cfg["broker"].get("market", "spot")
+    mode = cfg["broker"]["mode"]
+
+    # Pick the right CCXT class
+    if base == "binance" and market == "futures":
+        ccxt_id = "binanceusdm"              # USDT-M perpetuals (testnet.binancefuture.com)
+    elif base == "binance":
+        ccxt_id = "binance"                   # Spot (testnet.binance.vision)
     else:
-        key = os.environ.get(f"{key_env_prefix}_API_KEY")
-        secret = os.environ.get(f"{key_env_prefix}_API_SECRET")
-    if not (key and secret):
-        raise RuntimeError(f"{key_env_prefix}_API_KEY / _SECRET missing in env (testnet uses *_TESTNET_* if set)")
-    ex = getattr(ccxt, exchange_id)({"apiKey": key, "secret": secret, "enableRateLimit": True})
+        ccxt_id = base                        # bybit, kraken, okx etc.
+
+    prefix = base.upper()
     if mode == "testnet":
-        ex.set_sandbox_mode(True)  # Points to testnet.binance.vision / testnet.bybit.com / etc.
+        if market == "futures":
+            key = os.environ.get(f"{prefix}_FUTURES_TESTNET_API_KEY") or os.environ.get(f"{prefix}_TESTNET_API_KEY")
+            secret = os.environ.get(f"{prefix}_FUTURES_TESTNET_API_SECRET") or os.environ.get(f"{prefix}_TESTNET_API_SECRET")
+            missing = f"{prefix}_FUTURES_TESTNET_API_KEY / _SECRET (from testnet.binancefuture.com)"
+        else:
+            key = os.environ.get(f"{prefix}_SPOT_TESTNET_API_KEY") or os.environ.get(f"{prefix}_TESTNET_API_KEY")
+            secret = os.environ.get(f"{prefix}_SPOT_TESTNET_API_SECRET") or os.environ.get(f"{prefix}_TESTNET_API_SECRET")
+            missing = f"{prefix}_SPOT_TESTNET_API_KEY / _SECRET (from testnet.binance.vision)"
+    else:
+        key = os.environ.get(f"{prefix}_API_KEY")
+        secret = os.environ.get(f"{prefix}_API_SECRET")
+        missing = f"{prefix}_API_KEY / _SECRET"
+
+    if not (key and secret):
+        raise RuntimeError(f"GATE FAIL: env var missing — {missing}")
+
+    ex = getattr(ccxt, ccxt_id)({"apiKey": key, "secret": secret, "enableRateLimit": True,
+                                   "options": {"defaultType": "future" if market == "futures" else "spot"}})
+    if mode == "testnet":
+        ex.set_sandbox_mode(True)
     return ex
 
 
@@ -164,9 +185,9 @@ def cmd_place(args) -> int:
         return 3
 
     try:
-        ex = _ccxt_exchange(cfg["broker"]["exchange"], mode)
+        ex = _ccxt_exchange(cfg)
     except RuntimeError as e:
-        print(f"GATE FAIL: {e}", file=sys.stderr)
+        print(f"{e}", file=sys.stderr)
         return 3
 
     symbol = t["plan"]["symbol"]
