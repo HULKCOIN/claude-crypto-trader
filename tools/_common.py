@@ -62,6 +62,7 @@ _BINANCE_HOST_CACHE: dict[str, str] = {}  # path → working host for this run
 
 def _binance_call(path: str, params: dict | None = None) -> Any:
     """Try Binance mirrors; on geoblock (451/403) fall back to Binance.US."""
+    import sys as _sys
     import urllib.error
     cached = _BINANCE_HOST_CACHE.get(path)
     hosts = [cached] if cached else list(_BINANCE_HOSTS)
@@ -69,26 +70,31 @@ def _binance_call(path: str, params: dict | None = None) -> Any:
     for host in hosts:
         try:
             data = http_get(f"{host}{path}", params)
+            if host not in _BINANCE_HOST_CACHE.values():
+                print(f"[binance] using {host} for {path}", file=_sys.stderr)
             _BINANCE_HOST_CACHE[path] = host
             return data
         except urllib.error.HTTPError as e:
             last_err = e
-            if e.code in (451, 403):
-                continue  # geoblocked; try next
+            if e.code in (451, 403, 418, 429):
+                continue
             raise
         except Exception as e:
             last_err = e
             continue
-    # Final fallback: Binance.US (works from US, limited pair universe)
+    # Final fallback: Binance.US (works from US; limited pair universe).
+    # NOTE: binance.us uses the same /api/v3 paths but returns a smaller
+    # ticker list, and some USDT pairs don't exist there (uses USD instead).
     try:
         data = http_get(f"{_BINANCE_US}{path}", params)
+        print(f"[binance] FALLBACK to Binance.US for {path} (reduced pair universe)", file=_sys.stderr)
         _BINANCE_HOST_CACHE[path] = _BINANCE_US
         return data
     except Exception as e:
         raise RuntimeError(
             f"All Binance mirrors blocked (last com-error: {last_err}; us-error: {e}). "
-            f"GitHub Actions runs in US — Binance geoblocks api.binance.com there. "
-            f"Consider self-hosted runner or Bybit as fallback source."
+            f"GitHub Actions runs in US — api.binance.com returns 451 there. "
+            f"Switch to a self-hosted runner or use Bybit as data source."
         )
 
 
@@ -98,15 +104,37 @@ def binance_klines(symbol: str, interval: str = "15m", limit: int = 100) -> list
 
 
 def binance_top_pairs(quote: str = "USDT", top_n: int = 50, min_vol_usd: float = 5e7) -> list[str]:
-    """Return top N pairs by 24h quote volume, filtered by min volume."""
+    """Return top N pairs by 24h quote volume, filtered by min volume.
+
+    If the Binance.US fallback is in use (fewer USDT pairs), also fall back
+    to USD-quoted pairs so the scanner still has symbols to work with.
+    """
+    import sys as _sys
     tickers = _binance_call("/api/v3/ticker/24hr")
-    rows = [
-        t for t in tickers
-        if t["symbol"].endswith(quote)
-        and float(t.get("quoteVolume", 0)) >= min_vol_usd
-        and not any(x in t["symbol"] for x in ("UP", "DOWN", "BULL", "BEAR"))
-    ]
-    rows.sort(key=lambda t: float(t["quoteVolume"]), reverse=True)
+    if not isinstance(tickers, list):
+        print(f"[binance] unexpected ticker response type: {type(tickers)}", file=_sys.stderr)
+        return []
+
+    def pick(q: str) -> list[dict]:
+        return [
+            t for t in tickers
+            if t.get("symbol", "").endswith(q)
+            and float(t.get("quoteVolume", 0) or 0) >= min_vol_usd
+            and not any(x in t.get("symbol", "") for x in ("UP", "DOWN", "BULL", "BEAR"))
+        ]
+
+    rows = pick(quote)
+    if not rows and quote == "USDT":
+        # Binance.US fallback: try USD pairs with a lower threshold
+        rows = [
+            t for t in tickers
+            if t.get("symbol", "").endswith("USD")
+            and float(t.get("quoteVolume", 0) or 0) >= min_vol_usd / 10
+        ]
+        if rows:
+            print(f"[binance] no USDT pairs matched; fell back to {len(rows)} USD pairs", file=_sys.stderr)
+
+    rows.sort(key=lambda t: float(t.get("quoteVolume", 0) or 0), reverse=True)
     return [t["symbol"] for t in rows[:top_n]]
 
 

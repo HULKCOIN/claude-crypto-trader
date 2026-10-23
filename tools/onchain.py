@@ -86,9 +86,16 @@ def eth_whale_transfers(min_usd: float, eth_price: float, api_key: str | None) -
     except Exception as e:
         print(f"[onchain] etherscan: {e}", file=sys.stderr)
         return []
+    result = data.get("result")
+    if not isinstance(result, list):
+        # Etherscan returns a string like "Invalid API Key" or "NOTOK" on failure
+        print(f"[onchain] etherscan error: status={data.get('status')} msg={data.get('message')} result={result!r}", file=sys.stderr)
+        return []
     out = []
-    for tx in data.get("result", []) or []:
-        value_eth = int(tx.get("value", "0")) / 1e18
+    for tx in result:
+        if not isinstance(tx, dict):
+            continue
+        value_eth = int(tx.get("value", "0") or "0") / 1e18
         amount_usd = value_eth * eth_price
         if amount_usd < min_usd:
             continue
