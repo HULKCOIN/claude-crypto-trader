@@ -30,6 +30,7 @@ from urllib.request import Request, urlopen
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import BRIDGE_DIR, iso_now  # noqa: E402
+from gemini_log import log_call, sanitize, sanitize_dict  # noqa: E402
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -71,26 +72,29 @@ HELP_DE = (
 # System-Prompt für Gemini: Bot kennt das Trading-System
 GEMINI_SYSTEM = """Du bist der Crypto News- & Research-Bot in einer deutschen Telegram-Gruppe.
 
-DEIN KONTEXT:
-- Du gehörst zu einem automatisierten Crypto-Trading-System.
-- Das System scannt 60+ USDT-Paare auf Yahoo/Coinbase alle 5 Minuten.
-- Es nutzt 5 Setup-Typen: breakout_20d, bull_flag, reclaim_ma20, oversold, oversold_bounce.
-- Jedes Signal wird durch Monte-Carlo-Simulation (2000 Pfade) und Gemini-Review geprüft.
-- Es handelt im Binance Demo-Modus (Paper), nicht mit echtem Geld.
-- News kommen von CoinDesk/Cointelegraph RSS + CoinGecko Trending.
-- Whale-Tracking: Blockchain.info (BTC), Etherscan V2 (ETH + BSC).
-- Dexscreener-Monitor erkennt neue Memecoin-Pools.
-- Opening-Range-Breakout läuft parallel für US-/DE-Aktien während Börsenzeiten.
+DEIN KONTEXT (öffentliche Marktdaten, keine Account-Infos):
+- Es gibt ein automatisiertes Crypto-Trading-System im Hintergrund.
+- Das System scannt USDT-Paare alle 5 Minuten auf Setups.
+- News kommen von CoinDesk/Cointelegraph + CoinGecko Trending.
+- Whale-Alerts: große Transfers auf BTC/ETH/BSC (öffentliche On-Chain-Daten).
+- Dexscreener für neue Memecoin-Pools.
 
 DEIN JOB:
-- Beantworte Fragen auf Deutsch, kurz und präzise (max 300 Wörter).
+- Beantworte Fragen auf Deutsch, kurz und präzise (max 250 Wörter).
 - Nutze Markdown-Formatierung (*fett*, _kursiv_, `code`).
 - Bei Trading-Fragen: Gib Research/Fakten, aber KEINE Buy/Sell-Empfehlungen.
 - Immer am Ende dazu-sagen: "Keine Finanz-Beratung, DYOR."
-- Wenn der User eine Aktion will (Scanner starten, Trade öffnen, Position schließen):
-  → antworte mit "ACTION:scan" / "ACTION:open SYMBOL" / "ACTION:close SYMBOL" am Anfang.
 - Wenn Research zu einem Coin: nenne Fakten, Trends, bekannte News, Risiken.
 - Wenn du etwas nicht weißt: sag das ehrlich, keine Halluzination.
+
+WICHTIG — WAS DU NICHT TUN DARFST:
+- NIEMALS Trades auslösen, Orders öffnen, Positionen schließen.
+  → Das darf AUSSCHLIESSLICH der Account-Besitzer über den privaten Trading-Bot.
+- NIEMALS fragen oder vorschlagen "soll ich einen Trade öffnen?"
+- NIEMALS Account-Daten, Equity, offene Positionen, API-Keys oder Secrets erwähnen.
+- NIEMALS behaupten du könntest Geld bewegen.
+- Bei "kauf mir BTC" / "trade das für mich" → sag: "Trades laufen nur über den
+  privaten Trading-Bot des Besitzers, nicht hier."
 
 STIL:
 - Freundlich, auf Augenhöhe, nicht geschwätzig.
@@ -315,7 +319,7 @@ def cmd_status() -> str:
 # --- Gemini-Research ---
 
 def _recent_context(limit: int = 30) -> str:
-    """Baut Live-Markt-Kontext aus signal_queue für Gemini."""
+    """Baut PUBLIC-ONLY Markt-Kontext für Gemini (keine Account-/Trade-Daten)."""
     q = BRIDGE_DIR / "signal_queue.jsonl"
     if not q.exists():
         return ""
@@ -325,43 +329,62 @@ def _recent_context(limit: int = 30) -> str:
             rows.append(json.loads(l))
         except Exception:
             continue
-    # Kompakt zusammenfassen
+    # Nur öffentliche Markt-Quellen zulassen. KEIN auto_trades, KEINE Pipelines, KEINE Broker-Daten.
+    ALLOWED_SOURCES = {"crypto-news", "crypto-onchain", "crypto-scanner", "crypto-dex", "crypto-sentiment"}
     news = [r for r in rows if r.get("source") == "crypto-news"][-10:]
     whales = [r for r in rows if r.get("source") == "crypto-onchain"][-5:]
     scanner_hits = [r for r in rows if r.get("source") == "crypto-scanner"][-5:]
+    dex_hits = [r for r in rows if r.get("source") == "crypto-dex"][-3:]
 
     parts = []
     if news:
         parts.append("Jüngste News:")
         for n in news:
-            parts.append(f"- [{n.get('severity', '?')}] {n.get('headline', n.get('name', ''))[:140]}")
+            # Durch sanitize_dict → entfernt alle sensible Keys falls welche doch drin wären
+            clean = sanitize_dict(n)
+            parts.append(f"- [{clean.get('severity', '?')}] {clean.get('headline', clean.get('name', ''))[:140]}")
     if whales:
-        parts.append("\nJüngste Whales:")
+        parts.append("\nJüngste Whales (On-Chain, öffentlich):")
         for w in whales:
-            parts.append(f"- {w.get('symbol', '?')} ${w.get('amount_usd', 0):,.0f} {w.get('signal', '')}")
+            clean = sanitize_dict(w)
+            parts.append(f"- {clean.get('symbol', '?')} ${clean.get('amount_usd', 0):,.0f} {clean.get('signal', '')}")
     if scanner_hits:
         parts.append("\nAktuelle Scanner-Setups:")
         for s in scanner_hits:
-            parts.append(f"- {s.get('symbol', '')} {s.get('setup', '')} Q={s.get('quality', '-')}")
-    return "\n".join(parts)
+            clean = sanitize_dict(s)
+            parts.append(f"- {clean.get('symbol', '')} {clean.get('setup', '')} Q={clean.get('quality', '-')}")
+    if dex_hits:
+        parts.append("\nDex-Mover:")
+        for d in dex_hits:
+            clean = sanitize_dict(d)
+            parts.append(f"- {clean.get('symbol', '?')} {clean.get('price_change_24h', 0):+.1f}%/24h auf {clean.get('chain', '?')}")
+    # Final sanitize auf den ganzen Text für den Fall, dass irgendwo doch ein Key durchrutscht
+    return sanitize("\n".join(parts))
 
 
-def ask_gemini(question: str, context: str = "") -> tuple[str, str | None]:
-    """Fragt Gemini und gibt (antwort, action) zurück. action = 'scan', 'open BTC', etc."""
+def ask_gemini(question: str, context: str = "") -> str:
+    """Fragt Gemini mit Sanitizer VOR dem Senden + Logging mit Rotation.
+
+    Rückgabe: nur Text. Trade-Actions werden hier NIEMALS verarbeitet —
+    der News-Bot darf keine Trades auslösen.
+    """
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         return (
             "Gemini-API-Key fehlt — ich kann aktuell keine freien Fragen beantworten. "
-            "Nutze /help für die Befehle.",
-            None,
+            "Nutze /help für die Befehle."
         )
     import json as _json
     from urllib.request import Request as _R, urlopen as _U
 
-    full_prompt = f"{GEMINI_SYSTEM}\n\nMARKT-KONTEXT:\n{context or '(keine aktuellen Daten)'}\n\nFRAGE: {question}"
+    # Sanitize INPUT: User-Frage + Kontext → keine Secrets gehen raus
+    safe_question = sanitize(question)
+    safe_context = sanitize(context) if context else "(keine aktuellen Daten)"
+    full_prompt = f"{GEMINI_SYSTEM}\n\nMARKT-KONTEXT:\n{safe_context}\n\nFRAGE: {safe_question}"
+
     body = {
         "contents": [{"parts": [{"text": full_prompt}]}],
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 800},
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 700},
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
     try:
@@ -369,28 +392,28 @@ def ask_gemini(question: str, context: str = "") -> tuple[str, str | None]:
         with _U(req, timeout=30) as r:
             data = _json.loads(r.read().decode())
     except Exception as e:
-        return (f"Gemini-Fehler: {e}", None)
+        log_call("news_bot", full_prompt, f"ERROR: {e}")
+        return f"Gemini-Fehler: {e}"
 
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception:
-        return ("Gemini antwortete leer.", None)
+        log_call("news_bot", full_prompt, "EMPTY_RESPONSE")
+        return "Gemini antwortete leer."
 
-    # Action-Prefix extrahieren
-    action = None
-    m = re.match(r"ACTION:(\S+(?:\s+\S+)?)\s*\n?(.*)", text, re.DOTALL)
-    if m:
-        action = m.group(1).strip()
-        text = m.group(2).strip() or f"Soll ich *{action}* ausführen?"
-    return (text, action)
+    # Alle "ACTION:..." Hinweise entschärfen — Trade-Steuerung findet hier NICHT statt
+    text = re.sub(r"ACTION:\S+(?:\s+\S+)?\s*\n?", "", text).strip()
+
+    # Logging mit Rotation (30d)
+    log_call("news_bot", full_prompt, text)
+    return text
 
 
-def cmd_research(topic: str) -> tuple[str, str | None]:
+def cmd_research(topic: str) -> str:
     if not topic.strip():
-        return ("Nutzung: `/research <topic>` — z.B. `/research Solana Pump`", None)
+        return "Nutzung: `/research <topic>` — z.B. `/research Solana Pump`"
     ctx = _recent_context()
-    answer, action = ask_gemini(f"Research-Anfrage: {topic}", ctx)
-    return (answer, action)
+    return ask_gemini(f"Research-Anfrage: {topic}", ctx)
 
 
 # --- Welcome-Handler ---
@@ -469,10 +492,7 @@ def handle_message(update: dict) -> None:
             elif cmd == "/status":
                 send(chat_id, cmd_status(), reply_to=msg_id)
             elif cmd == "/research":
-                answer, action = cmd_research(args)
-                send(chat_id, answer, reply_to=msg_id)
-                if action:
-                    send(chat_id, f"Soll ich *{action}* ausführen? Antworte mit *ja* oder *nein*.")
+                send(chat_id, cmd_research(args), reply_to=msg_id)
             else:
                 send(chat_id, "Unbekannter Befehl. `/help` zeigt alle Optionen.", reply_to=msg_id)
         except Exception as e:
@@ -496,13 +516,11 @@ def handle_message(update: dict) -> None:
         send(chat_id, "Was möchtest du wissen? Nutze /help für die Befehle oder stell direkt eine Frage.", reply_to=msg_id)
         return
 
-    # Gemini antworten lassen
+    # Gemini antworten lassen — News-Bot kann KEINE Trades auslösen
     ctx = _recent_context()
-    answer, action = ask_gemini(clean_question, ctx)
+    answer = ask_gemini(clean_question, ctx)
     full_reply = f"{answer}\n\n_Keine Finanz-Beratung, DYOR._"
     send(chat_id, full_reply, reply_to=msg_id)
-    if action:
-        send(chat_id, f"➡️ Vorgeschlagene Aktion: *{action}*\nSoll ich das ausführen? Antworte mit *ja* oder *nein*.")
 
 
 # --- Main-Loop ---

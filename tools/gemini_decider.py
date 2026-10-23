@@ -150,6 +150,15 @@ Bewerte diesen Trade. Antworte nur mit JSON."""
         },
     }
 
+    # Sanitize prompt vor Senden + Logging mit 30-Tage-Rotation
+    try:
+        from gemini_log import log_call, sanitize
+        safe_prompt = sanitize(user_prompt)
+    except Exception:
+        log_call = None
+        safe_prompt = user_prompt
+    body["contents"] = [{"role": "user", "parts": [{"text": safe_prompt}]}]
+
     url = GEMINI_URL.format(model=model, key=key)
     try:
         req = Request(url, data=json.dumps(body).encode(),
@@ -158,13 +167,16 @@ Bewerte diesen Trade. Antworte nur mit JSON."""
             resp = json.loads(r.read().decode())
     except Exception as e:
         print(f"[gemini] API error: {e}", file=sys.stderr)
+        if log_call:
+            log_call("decider", safe_prompt, f"ERROR: {e}", meta={"symbol": plan.get("symbol")})
         return {"verdict": "ERROR", "confidence": 0, "reasoning": str(e), "risk_flags": []}
 
     # Parse response
     try:
         text = resp["candidates"][0]["content"]["parts"][0]["text"]
+        if log_call:
+            log_call("decider", safe_prompt, text, meta={"symbol": plan.get("symbol")})
         verdict = json.loads(text)
-        # Validate shape
         if "verdict" not in verdict:
             raise ValueError("missing verdict field")
         verdict.setdefault("confidence", 0.5)
@@ -173,6 +185,8 @@ Bewerte diesen Trade. Antworte nur mit JSON."""
         return verdict
     except Exception as e:
         print(f"[gemini] parse error: {e}; response={resp}", file=sys.stderr)
+        if log_call:
+            log_call("decider", safe_prompt, f"PARSE_ERROR: {e}", meta={"symbol": plan.get("symbol")})
         return {"verdict": "ERROR", "confidence": 0, "reasoning": f"parse: {e}", "risk_flags": []}
 
 

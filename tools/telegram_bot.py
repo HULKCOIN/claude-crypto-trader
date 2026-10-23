@@ -59,8 +59,19 @@ def send(chat_id: int | str, text: str, parse_mode: str = "Markdown") -> None:
 
 
 def allowed_chat_ids() -> set[str]:
-    raw = os.environ.get("TELEGRAM_CHAT_ID", "")
-    return {c.strip() for c in raw.split(",") if c.strip()}
+    """Owner-only: NUR die Chat-IDs aus TELEGRAM_OWNER_CHAT_ID (bevorzugt)
+    oder TELEGRAM_CHAT_ID als Fallback dürfen Commands auslösen.
+
+    WICHTIG: TELEGRAM_NEWS_CHAT_ID (die öffentliche News-Gruppe) steht hier
+    bewusst NICHT drin. Niemand außer dem Owner darf den Trading-Bot steuern.
+    """
+    raw = os.environ.get("TELEGRAM_OWNER_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
+    ids = {c.strip() for c in raw.split(",") if c.strip()}
+    # Explizit die News-Gruppe sperren, falls sie versehentlich in TELEGRAM_CHAT_ID landet
+    news_chat = (os.environ.get("TELEGRAM_NEWS_CHAT_ID") or "").strip()
+    if news_chat and news_chat in ids:
+        ids.discard(news_chat)
+    return ids
 
 
 # --- command handlers ---
@@ -295,8 +306,13 @@ def handle(update: dict) -> None:
     if not chat_id or not text.startswith("/"):
         return
     allowed = allowed_chat_ids()
-    if allowed and chat_id not in allowed:
-        print(f"[tg] ignored command from unauthorized chat {chat_id}", file=sys.stderr)
+    # Fail-closed: wenn keine Allowlist konfiguriert ist, NIEMAND darf steuern
+    if not allowed:
+        print(f"[tg] REFUSED (no allowlist): {chat_id}", file=sys.stderr)
+        return
+    if chat_id not in allowed:
+        # Zusätzlich blockieren falls Message aus News-Gruppe kommt
+        print(f"[tg] REFUSED unauthorized chat {chat_id}", file=sys.stderr)
         return
     parts = text.split()
     cmd = parts[0].split("@")[0].lower()  # strip @botname if group chat

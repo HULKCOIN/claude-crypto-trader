@@ -28,6 +28,9 @@ secrets/
 
 # Trading runtime data (never commit live state)
 bridge/signal_queue.jsonl
+
+# Gemini logs (local only, 30-day retention, enthält evtl. Prompt-Inhalte)
+data/gemini_logs/
 bridge/trades.jsonl
 bridge/positions.json
 logs/

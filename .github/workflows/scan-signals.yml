@@ -101,6 +101,9 @@ jobs:
       - name: Dexscreener Monitor (neue Memecoin-Mover)
         run: cd tools && python3 dex_monitor.py --min-change 20 || true
 
+      - name: Gemini-Log Cleanup (max 30d Retention)
+        run: cd tools && python3 gemini_log.py --cleanup || true
+
       - name: Auto-trader pipeline (scanner → exit → tm → risk → budget → broker)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
