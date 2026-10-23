@@ -48,37 +48,63 @@ def tg_send(text: str) -> bool:
         return False
 
 
-def format_scanner(s: dict) -> str:
-    rsi_line = f"RSI: {s.get('rsi')}\n" if s.get("rsi") is not None else ""
-    return (
-        f"🎯 *{s.get('symbol')}* — `{s.get('setup')}`\n"
-        f"Price: ${s.get('price'):.6f}\n"
-        f"Quality: {s.get('quality')}  ATR%: {s.get('atr_pct')}\n"
-        f"{rsi_line}"
-        f"Source: {s.get('exchange', 'yahoo')}"
-    )
+SIGNAL_ERKLAERUNG = {
+    "potential_sell_pressure": "⚠️ Könnte Verkaufsdruck geben (Whale legt ab auf Exchange)",
+    "potential_accumulation": "✅ Smart Money sammelt ein (Abhebung von Exchange)",
+    "stablecoin_mint_liquidity_in": "💰 Neue Liquidität im Markt (Stablecoin wird gedruckt)",
+    "large_btc_transfer": "📊 Großer BTC-Transfer (noch unklar wohin)",
+    "large_eth_transfer": "📊 Großer ETH-Transfer (noch unklar wohin)",
+}
 
 
 def format_onchain(s: dict) -> str:
+    amount = s.get("amount_usd", 0) or 0
+    chain = str(s.get("chain", "")).upper()
+    symbol = s.get("symbol", "?")
+    signal = s.get("signal", "")
+    erklaerung = SIGNAL_ERKLAERUNG.get(signal, signal)
+    bewertung = ""
+    if "sell_pressure" in signal:
+        bewertung = "\n📉 *Bedeutung:* Positionen schließen oder short erwägen"
+    elif "accumulation" in signal:
+        bewertung = "\n📈 *Bedeutung:* Long-Setup zusätzlich bestätigt"
+    elif "liquidity_in" in signal:
+        bewertung = "\n📈 *Bedeutung:* Bullish für den ganzen Markt (72h-Horizont)"
     return (
-        f"🐋 *Whale* — {str(s.get('chain', '')).upper()}\n"
-        f"{s.get('symbol')}: ${s.get('amount_usd', 0):,.0f}\n"
-        f"`{s.get('signal')}`"
+        f"🐋 *Whale-Alarm — {chain} {symbol}*\n"
+        f"Betrag: *${amount:,.0f}*\n"
+        f"Signal: {erklaerung}"
+        f"{bewertung}"
     )
 
 
 def format_news(s: dict) -> str:
     sev = s.get("severity", "normal")
-    sym = s.get("symbol") or "market"
+    sym = s.get("symbol") or "Markt"
     icon = "🔥" if sev == "high" else "📰"
-    hl = str(s.get("headline", ""))[:200]
+    hl = str(s.get("headline", ""))[:250]
     sentiment = s.get("sentiment", "neutral")
-    sent_icon = {"positive": "🟢", "negative": "🔴"}.get(sentiment, "⚪")
-    return f"{icon} *{sym}* {sent_icon}\n{hl}\n_{s.get('provider')}_"
+    sent_label = {"positive": "🟢 positiv", "negative": "🔴 negativ"}.get(sentiment, "⚪ neutral")
+    provider = s.get("provider", "unbekannt")
+    url = s.get("url", "")
+    link_line = f"\n[→ Artikel öffnen]({url})" if url else ""
+    bewertung = ""
+    if sev == "high" and sentiment == "positive":
+        bewertung = "\n💡 *Einschätzung:* Könnte Preis-Impuls auslösen — Watchlist beobachten"
+    elif sev == "high" and sentiment == "negative":
+        bewertung = "\n⚠️ *Einschätzung:* Negativ-Impact möglich — Long-Positionen prüfen"
+    return (
+        f"{icon} *{sym}* ({sent_label})\n"
+        f"{hl}\n"
+        f"_Quelle: {provider}_"
+        f"{link_line}"
+        f"{bewertung}"
+    )
 
 
+# Scanner wird NICHT mehr hier formatiert — pipeline_once.py pusht die
+# vollständige Trade-Empfehlung mit Entry/SL/TP/Odds für jedes Signal.
 FORMATTERS = {
-    "crypto-scanner": format_scanner,
     "crypto-onchain": format_onchain,
     "crypto-news": format_news,
 }
@@ -86,8 +112,7 @@ FORMATTERS = {
 
 def should_push(sig: dict, args) -> bool:
     src = sig.get("source", "")
-    if src == "crypto-scanner":
-        return (sig.get("quality") or 0) >= args.min_quality
+    # Scanner signals werden von pipeline_once.py gepusht (mit vollen Trade-Infos)
     if src == "crypto-onchain":
         return (sig.get("amount_usd") or 0) >= args.min_onchain_usd
     if src == "crypto-news":

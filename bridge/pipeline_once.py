@@ -175,25 +175,114 @@ def process_one(sig: dict, sims: int) -> dict | None:
     AUTO_LOG.parent.mkdir(parents=True, exist_ok=True)
     with open(AUTO_LOG, "a") as f:
         f.write(json.dumps(row) + "\n")
-    return {"status": "executed", **row}
+    return {"status": "executed", "plan": plan, "tm": tm, "size": size, "risk": risk, **row}
 
 
-def notify_executed(r: dict) -> None:
-    tg_notify(
-        f"🤖 *AUTO-TRADE* `{r['symbol']}` — {r['setup']}\n"
-        f"Entry: {r['entry']}\n"
-        f"Stop: {r['stop']}  🎯 Target: {r['target']}\n"
-        f"Qty: {r['qty']}  Notional: ${r['notional_usd']}\n"
-        f"E[R]: {r['edge_r']}  P(target): {r['p_target_first']}  P(stop): {r['p_stop_first']}\n"
-        f"Mode: {os.environ.get('BROKER_MODE_HINT', 'paper')}"
+SETUP_ERKLAERUNG = {
+    "reclaim_ma20": "20-Tage-Durchschnitt zurückerobert (Trendwende aufwärts)",
+    "breakout_20d": "Ausbruch über 20-Tage-Hoch (starker Aufwärts-Impuls)",
+    "bull_flag": "Bull-Flag nach +10% Impuls (Fortsetzung erwartet)",
+    "oversold": "Überverkauft (RSI < 30, kurzfristige Erholung möglich)",
+    "oversold_bounce": "Erholung aus überverkauftem Zustand (Reversal-Signal)",
+    "breakout": "Breakout über jüngstes Hoch mit Volumen-Surge",
+    "flag": "Flaggen-Formation (bullische Fortsetzung)",
+}
+
+
+def _pct(a: float, b: float) -> str:
+    if not b:
+        return "—"
+    return f"{(a / b - 1) * 100:+.2f}%"
+
+
+def _format_trade_message(sig: dict, plan: dict, tm: dict, size: dict | None,
+                           risk: dict | None, status: str, reason: str = "") -> str:
+    """Vollständige deutsche Trade-Empfehlung mit allen Infos."""
+    symbol = sig["symbol"]
+    setup = sig.get("setup", "?")
+    erklaerung = SETUP_ERKLAERUNG.get(setup, setup)
+    entry = plan["entry"]
+    stop = plan["stop"]
+    target = plan["target"]
+    rr = plan.get("reward_risk", 0)
+    p_target = tm.get("p_target_first", 0) * 100
+    p_stop = tm.get("p_stop_first", 0) * 100
+    expected_r = tm.get("expected_r", 0)
+    hist_wr = tm.get("historical_win_rate")
+    hist_wr_str = f"{hist_wr * 100:.0f}%" if hist_wr is not None else "n/a"
+
+    # Status-Icon + Empfehlung
+    if status == "executed":
+        kopf = f"🤖 *AUTO-TRADE GEÖFFNET*\n`{symbol}` ({setup})"
+        empfehlung = "✅ *Position wurde eröffnet* (Demo/Paper-Modus)"
+    elif status == "skipped":
+        kopf = f"🚫 *SIGNAL ÜBERSPRUNGEN*\n`{symbol}` ({setup})"
+        empfehlung = f"❌ *Grund:* {reason}\n💡 *Empfehlung:* NICHT traden — Edge zu schwach"
+    elif status == "proposal":
+        kopf = f"🎯 *HANDELS-SIGNAL*\n`{symbol}` ({setup})"
+        if expected_r > 0.3:
+            empfehlung = f"⭐⭐⭐ *EMPFEHLUNG: KAUFEN* — guter Edge"
+        elif expected_r > 0.1:
+            empfehlung = f"⭐⭐ *EMPFEHLUNG: VORSICHTIG KAUFEN* — mittlerer Edge"
+        else:
+            empfehlung = f"⭐ *EMPFEHLUNG: BEOBACHTEN* — Edge marginal"
+    else:
+        kopf = f"ℹ️ `{symbol}` ({setup})"
+        empfehlung = ""
+
+    size_block = ""
+    if size:
+        notional = size.get("notional_usd", 0)
+        qty = size.get("base_qty", 0)
+        risiko = size.get("dollar_risk_at_stop", 0)
+        size_block = (
+            f"\n*📊 Position:*\n"
+            f"• Menge: `{qty:.6f} {symbol.replace('USDT', '').replace('USD', '')}`\n"
+            f"• Einsatz: *${notional:,.2f}*\n"
+            f"• Max. Verlust bei Stop: *${risiko:,.2f}*"
+        )
+
+    risk_block = ""
+    if risk and status != "proposal":
+        if risk.get("verdict") == "PASS":
+            risk_block = "\n✅ Risk-Check: bestanden"
+        else:
+            risk_block = f"\n⚠️ Risk-Check: {risk.get('verdict')}"
+
+    return (
+        f"{kopf}\n"
+        f"_{erklaerung}_\n\n"
+        f"*📈 Trade-Plan:*\n"
+        f"• Einstieg: *${entry:,.6f}*\n"
+        f"• 🛑 Stop-Loss: *${stop:,.6f}* ({_pct(stop, entry)})\n"
+        f"• 🎯 Take-Profit: *${target:,.6f}* ({_pct(target, entry)})\n"
+        f"• R:R Verhältnis: *{rr:.2f}*"
+        f"{size_block}\n\n"
+        f"*🎲 Wahrscheinlichkeiten* (2.000 Monte-Carlo-Simulationen):\n"
+        f"• Target zuerst: *{p_target:.1f}%*\n"
+        f"• Stop zuerst: *{p_stop:.1f}%*\n"
+        f"• Erwartungswert: *{expected_r:+.2f} R*\n"
+        f"• Historische Trefferquote: *{hist_wr_str}*"
+        f"{risk_block}\n\n"
+        f"{empfehlung}"
     )
+
+
+def notify_executed(sig: dict, plan: dict, tm: dict, size: dict, risk: dict) -> None:
+    tg_notify(_format_trade_message(sig, plan, tm, size, risk, "executed"))
 
 
 def notify_skipped(sig: dict, r: dict) -> None:
-    tg_notify(
-        f"🚫 *Skipped* `{sig.get('symbol')}` — {sig.get('setup')}\n"
-        f"Reason: {r.get('reason')}"
-    )
+    plan = r.get("plan")
+    tm = r.get("tm")
+    if plan and tm:
+        tg_notify(_format_trade_message(sig, plan, tm, r.get("size"), r.get("risk"),
+                                        "skipped", r.get("reason", "unbekannt")))
+    else:
+        tg_notify(
+            f"🚫 *Signal übersprungen* `{sig.get('symbol')}` ({sig.get('setup')})\n"
+            f"Grund: {r.get('reason', 'unbekannt')}"
+        )
 
 
 def main() -> int:
@@ -201,7 +290,8 @@ def main() -> int:
     p.add_argument("--min-quality", type=float, default=0.5)
     p.add_argument("--sims", type=int, default=2000, help="Monte Carlo sims (CI-reduced)")
     p.add_argument("--max-per-run", type=int, default=5, help="cap trades per invocation")
-    p.add_argument("--notify-skips", action="store_true")
+    p.add_argument("--notify-skips", action="store_true", default=True,
+                   help="auch gesendete Signale pushen (mit SKIP-Begründung)")
     args = p.parse_args()
 
     signals = load_signals()
@@ -228,9 +318,9 @@ def main() -> int:
             continue
         if not r:
             continue
-        print(f"[auto] {r.get('status')}: {r}")
+        print(f"[auto] {r.get('status')}: {sig.get('symbol')} — {r.get('reason', '')}")
         if r.get("status") == "executed":
-            notify_executed(r)
+            notify_executed(sig, r["plan"], r["tm"], r["size"], r["risk"])
             executed += 1
         elif r.get("status") == "skip" and args.notify_skips:
             notify_skipped(sig, r)
