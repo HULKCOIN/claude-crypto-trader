@@ -23,9 +23,11 @@ from _common import (
     atr,
     binance_klines,
     binance_top_pairs,
+    find_setups_jake,
     load_config,
     rsi,
     to_candles,
+    wilder_rsi,
     write_signal,
     zscore,
 )
@@ -97,6 +99,9 @@ DETECTORS = {
     "oversold_bounce": lambda c, _lb: detect_oversold_bounce(c),
 }
 
+# Jake's 5 setups are added via find_setups_jake() in scan_symbol below.
+JAKE_SETUPS = {"breakout_20d", "bull_flag", "reclaim_ma20", "oversold", "oversold_bounce"}
+
 
 def scan_symbol(symbol: str, timeframe: str, lookback: int, setups: list[str]) -> list[dict]:
     try:
@@ -114,19 +119,19 @@ def scan_symbol(symbol: str, timeframe: str, lookback: int, setups: list[str]) -
     atr_val = atr(highs, lows, closes, 14)
     atr_pct = atr_val / closes[-1] * 100 if closes[-1] else 0
 
+    # Our original (volume+breakout) detectors
     for setup in setups:
+        if setup in JAKE_SETUPS:
+            continue  # handled below
         det = DETECTORS.get(setup)
         if not det:
             continue
-        if setup == "breakout":
-            hit = det(candles, lookback)
-        else:
-            hit = det(candles, lookback)
+        hit = det(candles, lookback)
         if not hit:
             continue
         hit.update({
             "symbol": symbol,
-            "exchange": "binance",
+            "exchange": "yahoo",
             "timeframe": timeframe,
             "atr": round(atr_val, 4),
             "atr_pct": round(atr_pct, 3),
@@ -135,6 +140,27 @@ def scan_symbol(symbol: str, timeframe: str, lookback: int, setups: list[str]) -
             min(1.0, hit.get("volume_zscore", 1.0) / 3 + atr_pct / 5), 2
         )
         out.append(hit)
+
+    # Jake's 5 close-only setups (breakout_20d, bull_flag, reclaim_ma20, oversold, oversold_bounce)
+    jake_wanted = [s for s in setups if s in JAKE_SETUPS]
+    if jake_wanted and len(closes) >= 30:
+        tags, nums = find_setups_jake(closes)
+        for tag in tags:
+            if tag not in jake_wanted:
+                continue
+            out.append({
+                "symbol": symbol,
+                "exchange": "yahoo",
+                "timeframe": timeframe,
+                "setup": tag,
+                "price": candles[-1].c,
+                "atr": round(atr_val, 4),
+                "atr_pct": round(atr_pct, 3),
+                "rsi": nums.get("rsi"),
+                "high20": nums.get("high20"),
+                "ma20": nums.get("ma20"),
+                "quality": round(min(1.0, 0.5 + atr_pct / 10), 2),
+            })
     return out
 
 

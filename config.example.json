@@ -8,8 +8,9 @@
   "scanner": {
     "timeframe": "15m",
     "lookback_bars": 96,
-    "setups": ["breakout", "flag", "oversold_bounce"],
-    "min_atr_pct": 0.5
+    "setups": ["breakout", "flag", "oversold_bounce", "breakout_20d", "bull_flag", "reclaim_ma20", "oversold"],
+    "min_atr_pct": 0.5,
+    "_setup_options": "ours: breakout, flag, oversold_bounce | Jake's: breakout_20d, bull_flag, reclaim_ma20, oversold, oversold_bounce"
   },
   "timemachine": {
     "simulations": 10000,
