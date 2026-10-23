@@ -81,6 +81,23 @@ def load_signals() -> list[dict]:
     return out
 
 
+def _parse_json(text: str) -> dict | None:
+    """Robust parse: try whole output, then from first { to end."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    if "{" in text:
+        try:
+            return json.loads(text[text.index("{"):])
+        except Exception:
+            pass
+    return None
+
+
 def process_one(sig: dict, sims: int) -> dict | None:
     symbol = sig.get("symbol")
     setup = sig.get("setup")
@@ -94,34 +111,25 @@ def process_one(sig: dict, sims: int) -> dict | None:
     code, out, err = py("exit.py", "--symbol", symbol, "--entry", str(price))
     if code != 0:
         return {"status": "error", "step": "exit", "msg": (err or out)[:300]}
-    try:
-        plan = json.loads(out.splitlines()[-1] if "\n" in out else out)
-    except Exception:
-        plan_lines = [l for l in out.splitlines() if l.strip().startswith("{")]
-        try:
-            plan = json.loads("\n".join(plan_lines) if plan_lines else out[out.index("{"):])
-        except Exception:
-            return {"status": "error", "step": "exit-parse", "msg": out[:300]}
+    plan = _parse_json(out)
+    if not plan:
+        return {"status": "error", "step": "exit-parse", "msg": out[:500]}
     plan_path = plan.get("plan_path")
     if not plan_path:
-        return {"status": "error", "step": "exit-no-plan-path"}
+        return {"status": "error", "step": "exit-no-plan-path", "plan": plan}
     plan_abs = str(REPO / plan_path) if not plan_path.startswith("/") else plan_path
 
     # 2. timemachine
     code, out, err = py("timemachine.py", "--plan", plan_abs, "--sims", str(sims))
     if code != 0:
         return {"status": "error", "step": "timemachine", "msg": (err or out)[:300]}
-    try:
-        tm = json.loads(out[out.index("{"):])
-    except Exception:
-        return {"status": "error", "step": "tm-parse", "msg": out[:300]}
+    tm = _parse_json(out)
+    if not tm:
+        return {"status": "error", "step": "tm-parse", "msg": out[:500]}
 
     # 3. risk
     code, out, err = py("risk.py", "--plan", plan_abs)
-    try:
-        risk = json.loads(out[out.index("{"):]) if out.strip() else {}
-    except Exception:
-        risk = {}
+    risk = _parse_json(out) or {}
     if code != 0 or risk.get("verdict") != "PASS":
         return {"status": "skip", "reason": f"risk={risk.get('verdict', 'FAIL')}",
                 "plan": plan, "tm": tm, "risk": risk}
@@ -130,10 +138,9 @@ def process_one(sig: dict, sims: int) -> dict | None:
     code, out, err = py("budget.py", "--plan", plan_abs)
     if code != 0:
         return {"status": "error", "step": "budget", "msg": (err or out)[:300]}
-    try:
-        size = json.loads(out[out.index("{"):])
-    except Exception:
-        return {"status": "error", "step": "budget-parse"}
+    size = _parse_json(out)
+    if not size:
+        return {"status": "error", "step": "budget-parse", "msg": out[:500]}
 
     # 5. policy
     er = tm.get("expected_r", 0)
