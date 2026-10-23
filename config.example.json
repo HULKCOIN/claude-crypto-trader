@@ -51,7 +51,7 @@
     "providers": ["blockchain.info", "etherscan"],
     "etherscan_api_key_env": "ETHERSCAN_API_KEY",
     "_note": "blockchain.info is keyless; etherscan free key at https://etherscan.io/myapikey (instant, no credit card)",
-    "min_transfer_usd": 500000
+    "min_transfer_usd": 100000
   },
   "telegram": {
     "command_bot_enabled": true,

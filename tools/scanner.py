@@ -40,9 +40,10 @@ def detect_breakout(candles, lookback: int) -> dict | None:
     if recent.c <= range_high:
         return None
     # Pass full history; zscore compares last value to preceding `window` values.
+    # Pass full history; zscore compares last value to preceding `window` values.
     vols = [c.v for c in candles]
     vol_z = zscore(vols, window=min(lookback, 20))
-    if vol_z < 1.5:
+    if vol_z < 1.0:  # loosened from 1.5 — crypto often breaks out on lower vol surges
         return None
     return {
         "setup": "breakout",
@@ -59,7 +60,7 @@ def detect_flag(candles) -> dict | None:
     pullback_window = candles[-4:]
     impulse_start = impulse_window[0].o
     impulse_end = impulse_window[-1].c
-    if impulse_end / impulse_start - 1 < 0.03:
+    if impulse_end / impulse_start - 1 < 0.015:  # 1.5% impulse (was 3%)
         return None
     pb_high = max(c.h for c in pullback_window[:-1])
     recent = pullback_window[-1]
@@ -157,7 +158,7 @@ def main() -> int:
     if args.symbol:
         symbols = [args.symbol.upper()]
     else:
-        print(f"[scanner] fetching top {args.top_n} USDT pairs...", file=sys.stderr)
+        print(f"[scanner] fetching top {args.top_n} {cfg['universe']['quote']} pairs...", file=sys.stderr)
         symbols = binance_top_pairs(
             quote=cfg["universe"]["quote"],
             top_n=args.top_n,
