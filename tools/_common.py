@@ -43,22 +43,63 @@ def http_get(url: str, params: dict | None = None, timeout: int = 15) -> Any:
         return json.loads(resp.read().decode())
 
 
-# --- Binance public REST ---
+# --- Binance public REST with geoblock-aware fallback ---
+# api.binance.com returns 451/403 from US-based IPs (incl. GitHub Actions
+# US-East runners). We try the regional mirrors first; if all are blocked
+# we fall back to Binance.US which has fewer pairs but works from the US.
 
-BINANCE_BASE = "https://api.binance.com"
+_BINANCE_HOSTS = [
+    "https://api-gcp.binance.com",   # Google Cloud mirror; usually unblocked
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com",
+    "https://api4.binance.com",
+    "https://api.binance.com",
+]
+_BINANCE_US = "https://api.binance.us"
+_BINANCE_HOST_CACHE: dict[str, str] = {}  # path → working host for this run
+
+
+def _binance_call(path: str, params: dict | None = None) -> Any:
+    """Try Binance mirrors; on geoblock (451/403) fall back to Binance.US."""
+    import urllib.error
+    cached = _BINANCE_HOST_CACHE.get(path)
+    hosts = [cached] if cached else list(_BINANCE_HOSTS)
+    last_err: Exception | None = None
+    for host in hosts:
+        try:
+            data = http_get(f"{host}{path}", params)
+            _BINANCE_HOST_CACHE[path] = host
+            return data
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code in (451, 403):
+                continue  # geoblocked; try next
+            raise
+        except Exception as e:
+            last_err = e
+            continue
+    # Final fallback: Binance.US (works from US, limited pair universe)
+    try:
+        data = http_get(f"{_BINANCE_US}{path}", params)
+        _BINANCE_HOST_CACHE[path] = _BINANCE_US
+        return data
+    except Exception as e:
+        raise RuntimeError(
+            f"All Binance mirrors blocked (last com-error: {last_err}; us-error: {e}). "
+            f"GitHub Actions runs in US — Binance geoblocks api.binance.com there. "
+            f"Consider self-hosted runner or Bybit as fallback source."
+        )
 
 
 def binance_klines(symbol: str, interval: str = "15m", limit: int = 100) -> list[list]:
     """Return raw klines: [open_time, o, h, l, c, v, close_time, qv, trades, tbbv, tbqv, _]"""
-    return http_get(
-        f"{BINANCE_BASE}/api/v3/klines",
-        {"symbol": symbol, "interval": interval, "limit": limit},
-    )
+    return _binance_call("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": limit})
 
 
 def binance_top_pairs(quote: str = "USDT", top_n: int = 50, min_vol_usd: float = 5e7) -> list[str]:
     """Return top N pairs by 24h quote volume, filtered by min volume."""
-    tickers = http_get(f"{BINANCE_BASE}/api/v3/ticker/24hr")
+    tickers = _binance_call("/api/v3/ticker/24hr")
     rows = [
         t for t in tickers
         if t["symbol"].endswith(quote)

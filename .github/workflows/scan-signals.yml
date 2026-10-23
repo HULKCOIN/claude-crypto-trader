@@ -45,13 +45,14 @@ jobs:
             cp config.example.json config.json
           fi
 
-      - name: Run scanner
+      - name: Run scanner (verbose, no error swallow)
+        continue-on-error: true
         run: |
           cd tools
           if [ -n "${{ inputs.symbol }}" ]; then
-            python3 scanner.py --symbol "${{ inputs.symbol }}" || true
+            python3 scanner.py --symbol "${{ inputs.symbol }}"
           else
-            python3 scanner.py || true
+            python3 scanner.py
           fi
 
       - name: Pull news (CoinGecko + CoinDesk + Cointelegraph, no key)
