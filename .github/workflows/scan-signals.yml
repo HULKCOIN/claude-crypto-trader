@@ -89,6 +89,12 @@ jobs:
           BROKER_MODE_HINT: paper
         run: python3 bridge/pipeline_once.py --min-quality 0.5 --sims 2000 --max-per-run 3 || true
 
+      - name: Position tracker (checkt offene Trades, pusht Close + PnL)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 bridge/position_tracker.py || true
+
       - name: Commit new signals + pipeline state
         run: |
           git config user.name "github-actions[bot]"
@@ -97,10 +103,17 @@ jobs:
           if [ -f bridge/signal_queue.jsonl ]; then
             tail -n 500 bridge/signal_queue.jsonl > data/snapshots/latest.jsonl
           fi
-          # Commit the snapshot plus the dedup cursors (state persists across runs)
+          # Commit the snapshot plus the dedup cursors AND the PnL stats (state persists)
           git add data/snapshots/latest.jsonl 2>/dev/null || true
           git add data/snapshots/last_push_ts.txt 2>/dev/null || true
           git add data/snapshots/last_pipeline_ts.txt 2>/dev/null || true
+          git add data/snapshots/pnl_stats.json 2>/dev/null || true
+          # bridge/auto_trades.jsonl: keep it committed so we can track across runs
+          mkdir -p data/snapshots
+          if [ -f bridge/auto_trades.jsonl ]; then
+            cp bridge/auto_trades.jsonl data/snapshots/auto_trades.jsonl
+            git add data/snapshots/auto_trades.jsonl 2>/dev/null || true
+          fi
           if ! git diff --staged --quiet; then
             git commit -m "chore: snapshot signals + pipeline cursors $(date -u +%FT%TZ)"
             git push

@@ -37,6 +37,15 @@ QUEUE = BRIDGE_DIR / "signal_queue.jsonl"
 SNAPSHOT = REPO / "data" / "snapshots" / "latest.jsonl"
 LAST_TS_FILE = REPO / "data" / "snapshots" / "last_pipeline_ts.txt"
 AUTO_LOG = BRIDGE_DIR / "auto_trades.jsonl"
+AUTO_LOG_SNAPSHOT = REPO / "data" / "snapshots" / "auto_trades.jsonl"
+
+
+def _restore_auto_log() -> None:
+    """CI runners start fresh — restore the auto-trade log from the committed snapshot."""
+    if not AUTO_LOG.exists() and AUTO_LOG_SNAPSHOT.exists():
+        AUTO_LOG.parent.mkdir(parents=True, exist_ok=True)
+        AUTO_LOG.write_text(AUTO_LOG_SNAPSHOT.read_text())
+        print(f"[auto] restored {sum(1 for _ in AUTO_LOG_SNAPSHOT.read_text().splitlines() if _.strip())} prior trades from snapshot")
 
 
 def read_last_ts() -> str:
@@ -239,6 +248,17 @@ def _pct(a: float, b: float) -> str:
     return f"{(a / b - 1) * 100:+.2f}%"
 
 
+def _load_pnl_stats() -> dict:
+    """Lädt die Gesamt-PnL-Stats für den OPEN-Message Footer."""
+    stats_file = REPO / "data" / "snapshots" / "pnl_stats.json"
+    if stats_file.exists():
+        try:
+            return json.loads(stats_file.read_text())
+        except Exception:
+            pass
+    return {"total_pnl_usd": 0.0, "trades_total": 0, "trades_wins": 0, "trades_losses": 0}
+
+
 def _format_trade_message(sig: dict, plan: dict, tm: dict, size: dict | None,
                            risk: dict | None, status: str, reason: str = "") -> str:
     """Vollständige deutsche Trade-Empfehlung mit allen Infos."""
@@ -293,6 +313,20 @@ def _format_trade_message(sig: dict, plan: dict, tm: dict, size: dict | None,
         else:
             risk_block = f"\n⚠️ Risk-Check: {risk.get('verdict')}"
 
+    # Gesamt-PnL-Footer (nur bei executed)
+    pnl_footer = ""
+    if status == "executed":
+        s = _load_pnl_stats()
+        total = s.get("total_pnl_usd", 0)
+        total_sign = "+" if total >= 0 else ""
+        wr = (s["trades_wins"] / s["trades_total"] * 100) if s.get("trades_total") else 0
+        pnl_footer = (
+            f"\n\n*📊 Konto-Status:*\n"
+            f"• Gesamt-PnL: *{total_sign}${total:,.2f}*\n"
+            f"• Trades: {s.get('trades_total', 0)} ({s.get('trades_wins', 0)}W / {s.get('trades_losses', 0)}L)"
+            + (f" — Win-Rate {wr:.0f}%" if s.get("trades_total") else "")
+        )
+
     return (
         f"{kopf}\n"
         f"_{erklaerung}_\n\n"
@@ -309,6 +343,7 @@ def _format_trade_message(sig: dict, plan: dict, tm: dict, size: dict | None,
         f"• Historische Trefferquote: *{hist_wr_str}*"
         f"{risk_block}\n\n"
         f"{empfehlung}"
+        f"{pnl_footer}"
     )
 
 
@@ -338,6 +373,7 @@ def main() -> int:
                    help="auch gesendete Signale pushen (mit SKIP-Begründung)")
     args = p.parse_args()
 
+    _restore_auto_log()
     signals = load_signals()
     if not signals:
         print("[auto] no signals")
