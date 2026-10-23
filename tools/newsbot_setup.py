@@ -50,41 +50,41 @@ BOT_SHORT_DESCRIPTION = (
     "Komplett automatisiert, Paper-Trading. DYOR."
 )
 
-INFO_MESSAGE = """🚀 *Crypto Signals — Info*
+INFO_MESSAGE = """<b>🚀 Crypto Signals — Info</b>
 
 Willkommen in der offiziellen Signal-Gruppe. Hier bekommst du alle 5 Minuten eine Lage-Übersicht aus einem vollautomatisierten Trading-System.
 
-*Was läuft hier:*
+<b>Was läuft hier:</b>
 📰 News von CoinDesk + Cointelegraph (deutsch übersetzt)
 🐋 Whale-Alerts: BTC, ETH, BNB-Chain Großtransfers
-📊 Sentiment: Fear & Greed, Funding, Long/Short-Ratio
+📊 Sentiment: Fear &amp; Greed, Funding, Long/Short-Ratio
 🚀 Dex-Mover: neue Memecoin-Pools (Dexscreener)
 📈 Trade-Setups: Breakout, Flag, Reclaim MA20, Oversold
 🤖 Jedes Signal mit Monte-Carlo-Odds (2000 Simulationen)
 💰 Trading im Binance-Demo-Modus (Paper, kein echtes Geld)
 
-*Commands:*
-`/help` — alle Befehle
-`/news` — letzte News
-`/whales` — Whale-Alerts
-`/sentiment` — Marktstimmung
-`/dex` — neue Memecoin-Mover
-`/scan` — Scanner jetzt starten
-`/signals` — letzte Signale
-`/status` — Bot-Status
-`/research <topic>` — Research-Frage
+<b>Commands:</b>
+/help — alle Befehle
+/news — letzte News
+/whales — Whale-Alerts
+/sentiment — Marktstimmung
+/dex — neue Memecoin-Mover
+/scan — Scanner jetzt starten
+/signals — letzte Signale
+/status — Bot-Status
+/research &lt;topic&gt; — Research-Frage
 
-Oder frag mich einfach direkt: _"Was ist mit Solana los?"_, _"Warum fällt BTC?"_ — ich recherchiere und antworte auf Deutsch.
+Oder frag mich einfach direkt: <i>"Was ist mit Solana los?"</i>, <i>"Warum fällt BTC?"</i> — ich recherchiere und antworte auf Deutsch.
 
-*Regeln:*
+<b>Regeln:</b>
 ❌ Keine Finanz-Beratung — alle Signale sind nur Entscheidungs-Hilfen.
 ❌ Risikiere nie mehr als du verlieren kannst.
 ❌ DYOR (Do Your Own Research) ist Pflicht.
 ❌ Kein Shilling, keine Scam-Links, keine Memecoin-Pushes.
 
-*Technik:*
-Open Source auf GitHub: `hulkcoin/ltx-2`
-Läuft 24/7 auf GCP mit 5-Min-Cron.
+<b>Technik:</b>
+Open Source auf GitHub.
+Läuft 24/7 via Cron.
 Backend: Yahoo Finance, Coinbase, Etherscan V2, Dexscreener, CoinGecko.
 """
 
@@ -108,8 +108,16 @@ def _chat_id() -> str:
 def _tg(method: str, **params) -> dict:
     url = f"https://api.telegram.org/bot{_token()}/{method}"
     data = urlencode(params).encode()
-    with urlopen(Request(url, data=data), timeout=30) as r:
-        return json.loads(r.read().decode())
+    try:
+        with urlopen(Request(url, data=data), timeout=30) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:
+        # Telegram liefert bei Markdown-Fehlern 400 — Body enthält Grund
+        try:
+            body = e.read().decode() if hasattr(e, "read") else ""  # type: ignore[attr-defined]
+            return {"ok": False, "error": str(e), "body": body}
+        except Exception:
+            return {"ok": False, "error": str(e)}
 
 
 def set_commands() -> None:
@@ -129,17 +137,26 @@ def set_description() -> None:
 def post_info() -> None:
     cid = _chat_id()
     print(f"[setup] poste Info-Nachricht in Chat {cid}...")
+    # Erst HTML versuchen (robuster), dann plain als Fallback
     r = _tg("sendMessage", chat_id=cid, text=INFO_MESSAGE[:4000],
-            parse_mode="Markdown", disable_web_page_preview="true")
+            parse_mode="HTML", disable_web_page_preview="true")
+    if not r.get("ok"):
+        print(f"[setup] HTML-Send fehlgeschlagen: {r.get('error')} body={r.get('body','')[:200]}")
+        print("[setup] Fallback: sende als plain-text ohne parse_mode...")
+        import re as _re
+        plain = _re.sub(r"<[^>]+>", "", INFO_MESSAGE).replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        r = _tg("sendMessage", chat_id=cid, text=plain[:4000], disable_web_page_preview="true")
     msg_id = (r.get("result") or {}).get("message_id")
     print(f"[setup] sendMessage → ok={r.get('ok')}, msg_id={msg_id}")
-    if msg_id:
-        # Versuch zu pinnen (klappt nur mit Admin-Rechten)
-        pr = _tg("pinChatMessage", chat_id=cid, message_id=msg_id, disable_notification="false")
-        print(f"[setup] pinChatMessage → ok={pr.get('ok')} (braucht Admin-Rechte)")
-        if not pr.get("ok"):
-            print(f"[setup] Pin-Fehler: {pr.get('description')}")
-            print(f"[setup] → Gib dem Bot Admin-Rechte oder pinne die Nachricht manuell (msg_id={msg_id}).")
+    if not msg_id:
+        print(f"[setup] FEHLER: {r}")
+        return
+    # Versuch zu pinnen (klappt nur mit Admin-Rechten)
+    pr = _tg("pinChatMessage", chat_id=cid, message_id=msg_id, disable_notification="false")
+    print(f"[setup] pinChatMessage → ok={pr.get('ok')} (braucht Admin-Rechte)")
+    if not pr.get("ok"):
+        print(f"[setup] Pin-Fehler: {pr.get('error') or pr.get('description')}")
+        print(f"[setup] → Gib dem Bot Admin-Rechte oder pinne die Nachricht manuell (msg_id={msg_id}).")
 
 
 def set_group_about() -> None:
