@@ -64,6 +64,11 @@ jobs:
       - name: Market sentiment
         run: cd tools && python3 sentiment.py || true
 
+      - name: On-chain whale watcher
+        env:
+          WHALE_ALERT_TOKEN: ${{ secrets.WHALE_ALERT_TOKEN }}
+        run: cd tools && python3 onchain.py || true
+
       - name: Watch alerts
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

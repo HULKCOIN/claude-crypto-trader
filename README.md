@@ -72,6 +72,11 @@ sentiment and alerts every 15 minutes, forever, on GitHub's free runners.
 Snapshots the last 500 signals back into the repo so your agent can pull
 them from anywhere. See [docs/24_7_DEPLOYMENT.md](docs/24_7_DEPLOYMENT.md).
 
+## Setup secrets (15 min, all free)
+
+See **[docs/SETUP_SECRETS.md](docs/SETUP_SECRETS.md)** for click-by-click
+instructions for CryptoPanic, Whale Alert, Telegram, and Binance Testnet.
+
 ## Agent integration (Hermes, GPT, Gemini, …)
 
 Every skill writes its output as one JSON line to `bridge/signal_queue.jsonl`.

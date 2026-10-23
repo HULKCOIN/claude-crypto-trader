@@ -29,7 +29,8 @@
   },
   "broker": {
     "exchange": "binance",
-    "mode": "paper",
+    "mode": "testnet",
+    "_mode_options": "paper (local sim) | testnet (real exchange, fake money) | live (REAL money — needs 3 gates)",
     "paper_balance_usd": 1000
   },
   "alerts": {

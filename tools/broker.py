@@ -99,6 +99,25 @@ def cmd_approve(args) -> int:
     return 0
 
 
+def _ccxt_exchange(exchange_id: str, mode: str):
+    """Instantiate a CCXT exchange, sandbox mode if testnet."""
+    import ccxt
+    key_env_prefix = exchange_id.upper()
+    if mode == "testnet":
+        # Testnet keys usually have a dedicated prefix
+        key = os.environ.get(f"{key_env_prefix}_TESTNET_API_KEY") or os.environ.get(f"{key_env_prefix}_API_KEY")
+        secret = os.environ.get(f"{key_env_prefix}_TESTNET_API_SECRET") or os.environ.get(f"{key_env_prefix}_API_SECRET")
+    else:
+        key = os.environ.get(f"{key_env_prefix}_API_KEY")
+        secret = os.environ.get(f"{key_env_prefix}_API_SECRET")
+    if not (key and secret):
+        raise RuntimeError(f"{key_env_prefix}_API_KEY / _SECRET missing in env (testnet uses *_TESTNET_* if set)")
+    ex = getattr(ccxt, exchange_id)({"apiKey": key, "secret": secret, "enableRateLimit": True})
+    if mode == "testnet":
+        ex.set_sandbox_mode(True)  # Points to testnet.binance.vision / testnet.bybit.com / etc.
+    return ex
+
+
 def cmd_place(args) -> int:
     cfg = load_config()
     mode = cfg["broker"]["mode"]
@@ -118,6 +137,7 @@ def cmd_place(args) -> int:
         return 3
 
     if mode == "paper":
+        # Local simulation, no API call.
         fill = {
             "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "mode": "paper",
@@ -136,33 +156,36 @@ def cmd_place(args) -> int:
         print(json.dumps(fill, indent=2))
         return 0
 
-    # mode == "live" — real order via CCXT
+    # testnet or live — real CCXT call (testnet uses sandbox mode)
     try:
-        import ccxt  # noqa
+        import ccxt  # noqa: F401
     except ImportError:
         print("GATE FAIL: ccxt not installed; run `pip install -r requirements.txt`", file=sys.stderr)
         return 3
 
-    exchange_id = cfg["broker"]["exchange"]
-    key = os.environ.get(f"{exchange_id.upper()}_API_KEY")
-    secret = os.environ.get(f"{exchange_id.upper()}_API_SECRET")
-    if not (key and secret):
-        print(f"GATE FAIL: {exchange_id.upper()}_API_KEY / _SECRET missing in env", file=sys.stderr)
+    try:
+        ex = _ccxt_exchange(cfg["broker"]["exchange"], mode)
+    except RuntimeError as e:
+        print(f"GATE FAIL: {e}", file=sys.stderr)
         return 3
 
-    import ccxt
-    ex = getattr(ccxt, exchange_id)({"apiKey": key, "secret": secret, "enableRateLimit": True})
     symbol = t["plan"]["symbol"]
-    # Convert BTCUSDT -> BTC/USDT for CCXT
     if "/" not in symbol:
         symbol = symbol[:-4] + "/" + symbol[-4:]
     side = "buy" if t["plan"]["side"] == "long" else "sell"
     qty = t["size"]["base_qty"]
+
+    if mode == "live":
+        # Extra guard: live needs explicit opt-in in config
+        if not cfg["broker"].get("live_confirmed"):
+            print("GATE FAIL: live mode requires config.broker.live_confirmed = true", file=sys.stderr)
+            return 3
+
     order = ex.create_market_order(symbol, side, qty)
-    t["status"] = "FILLED_LIVE"
+    t["status"] = f"FILLED_{mode.upper()}"
     t["broker_order"] = order
     rewrite_tickets(tickets)
-    write_signal({"source": "crypto-broker", "mode": "live", **order})
+    write_signal({"source": "crypto-broker", "mode": mode, **order})
     print(json.dumps(order, indent=2, default=str))
     return 0
 
