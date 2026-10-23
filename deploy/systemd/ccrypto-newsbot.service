@@ -1,0 +1,18 @@
+[Unit]
+Description=HULKCOIN Crypto Trader — Interactive News Bot (long-polling daemon)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ccrypto-trader
+EnvironmentFile=/opt/ccrypto-trader/.env
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/news_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/ccrypto-trader/logs/newsbot.log
+StandardError=append:/opt/ccrypto-trader/logs/newsbot.log
+User=root
+
+[Install]
+WantedBy=multi-user.target

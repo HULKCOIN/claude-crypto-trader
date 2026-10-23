@@ -1,0 +1,43 @@
+name: News-Bot Setup (One-shot)
+
+# Einmalig manuell triggern nach:
+#   1. Bot in Gruppe hinzugefügt
+#   2. Bot als Admin ernannt (für Pin/Beschreibung)
+#   3. TELEGRAM_NEWS_BOT_TOKEN + TELEGRAM_NEWS_CHAT_ID als Secrets gesetzt
+#
+# Registriert /-Commands, setzt Beschreibungen und postet Info-Nachricht
+# (die danach manuell oder automatisch gepinnt wird).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Was ausführen"
+        type: choice
+        options:
+          - all
+          - commands-only
+          - post-info
+          - description-only
+        default: all
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Register bot commands + post info
+        env:
+          TELEGRAM_NEWS_BOT_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_TOKEN }}
+          TELEGRAM_NEWS_CHAT_ID: ${{ secrets.TELEGRAM_NEWS_CHAT_ID }}
+        run: |
+          cd tools
+          case "${{ inputs.action }}" in
+            commands-only) python3 newsbot_setup.py --commands-only ;;
+            post-info)     python3 newsbot_setup.py --post-info ;;
+            description-only) python3 newsbot_setup.py --description-only ;;
+            *) python3 newsbot_setup.py ;;
+          esac

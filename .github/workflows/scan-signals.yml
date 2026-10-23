@@ -98,6 +98,9 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: cd tools && python3 listings_monitor.py || true
 
+      - name: Dexscreener Monitor (neue Memecoin-Mover)
+        run: cd tools && python3 dex_monitor.py --min-change 20 || true
+
       - name: Auto-trader pipeline (scanner → exit → tm → risk → budget → broker)
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -131,6 +134,12 @@ jobs:
           git add data/snapshots/pushed_dedup.jsonl 2>/dev/null || true
           git add data/snapshots/seen_listings.jsonl 2>/dev/null || true
           git add data/snapshots/news_translations.json 2>/dev/null || true
+          # Dex-Monitor dedup state
+          mkdir -p data/snapshots
+          if [ -f bridge/dex_seen.json ]; then
+            cp bridge/dex_seen.json data/snapshots/dex_seen.json
+            git add data/snapshots/dex_seen.json 2>/dev/null || true
+          fi
           # bridge/auto_trades.jsonl: keep it committed so we can track across runs
           mkdir -p data/snapshots
           if [ -f bridge/auto_trades.jsonl ]; then
