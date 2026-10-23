@@ -43,99 +43,105 @@ def http_get(url: str, params: dict | None = None, timeout: int = 15) -> Any:
         return json.loads(resp.read().decode())
 
 
-# --- Binance public REST with geoblock-aware fallback ---
-# api.binance.com returns 451/403 from US-based IPs (incl. GitHub Actions
-# US-East runners). We try the regional mirrors first; if all are blocked
-# we fall back to Binance.US which has fewer pairs but works from the US.
+# --- Market data via Bybit (works from US / GitHub Actions) ---
+# Binance.com geoblocks US IPs including GitHub Actions runners.
+# Bybit's public v5 API has the same USDT pair universe and no geoblock.
+# We keep the function names `binance_*` for compatibility but route to
+# Bybit by default; actual Binance stays available as a fallback for
+# self-hosted runners outside the US.
 
-_BINANCE_HOSTS = [
-    "https://api-gcp.binance.com",   # Google Cloud mirror; usually unblocked
-    "https://api1.binance.com",
-    "https://api2.binance.com",
-    "https://api3.binance.com",
-    "https://api4.binance.com",
-    "https://api.binance.com",
-]
-_BINANCE_US = "https://api.binance.us"
-_BINANCE_HOST_CACHE: dict[str, str] = {}  # path → working host for this run
+BYBIT_BASE = "https://api.bybit.com"
+_BINANCE_HOSTS = ["https://api-gcp.binance.com", "https://api.binance.com"]
+_PRIMARY_SOURCE_CACHE: dict[str, str] = {}
 
 
-def _binance_call(path: str, params: dict | None = None) -> Any:
-    """Try Binance mirrors; on geoblock (451/403) fall back to Binance.US."""
-    import sys as _sys
-    import urllib.error
-    cached = _BINANCE_HOST_CACHE.get(path)
-    hosts = [cached] if cached else list(_BINANCE_HOSTS)
-    last_err: Exception | None = None
-    for host in hosts:
-        try:
-            data = http_get(f"{host}{path}", params)
-            if host not in _BINANCE_HOST_CACHE.values():
-                print(f"[binance] using {host} for {path}", file=_sys.stderr)
-            _BINANCE_HOST_CACHE[path] = host
-            return data
-        except urllib.error.HTTPError as e:
-            last_err = e
-            if e.code in (451, 403, 418, 429):
-                continue
-            raise
-        except Exception as e:
-            last_err = e
+_BYBIT_INTERVAL = {"1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+                   "1h": "60", "2h": "120", "4h": "240", "6h": "360",
+                   "12h": "720", "1d": "D", "1w": "W", "1M": "M"}
+
+
+def _bybit_klines(symbol: str, interval: str, limit: int) -> list[list]:
+    """Return Binance-shaped klines rows [open_time, o, h, l, c, v, ...] via Bybit v5."""
+    bi = _BYBIT_INTERVAL.get(interval, "15")
+    data = http_get(f"{BYBIT_BASE}/v5/market/kline",
+                    {"category": "spot", "symbol": symbol, "interval": bi, "limit": limit})
+    rows = data.get("result", {}).get("list", [])
+    # Bybit returns newest first; invert and reshape to Binance layout
+    out = []
+    for r in reversed(rows):
+        # Bybit: [startTime, open, high, low, close, volume, turnover]
+        out.append([int(r[0]), r[1], r[2], r[3], r[4], r[5], int(r[0]) + 1, r[6], 0, 0, 0, 0])
+    return out
+
+
+def _bybit_top_pairs(quote: str, top_n: int, min_vol_usd: float) -> list[str]:
+    data = http_get(f"{BYBIT_BASE}/v5/market/tickers", {"category": "spot"})
+    rows = data.get("result", {}).get("list", [])
+    picked = []
+    for t in rows:
+        sym = t.get("symbol", "")
+        if not sym.endswith(quote):
             continue
-    # Final fallback: Binance.US (works from US; limited pair universe).
-    # NOTE: binance.us uses the same /api/v3 paths but returns a smaller
-    # ticker list, and some USDT pairs don't exist there (uses USD instead).
-    try:
-        data = http_get(f"{_BINANCE_US}{path}", params)
-        print(f"[binance] FALLBACK to Binance.US for {path} (reduced pair universe)", file=_sys.stderr)
-        _BINANCE_HOST_CACHE[path] = _BINANCE_US
-        return data
-    except Exception as e:
-        raise RuntimeError(
-            f"All Binance mirrors blocked (last com-error: {last_err}; us-error: {e}). "
-            f"GitHub Actions runs in US — api.binance.com returns 451 there. "
-            f"Switch to a self-hosted runner or use Bybit as data source."
-        )
+        if any(x in sym for x in ("UP", "DOWN", "BULL", "BEAR", "3L", "3S", "5L", "5S")):
+            continue
+        vol = float(t.get("turnover24h", 0) or 0)  # already in USD-ish quote
+        if vol < min_vol_usd:
+            continue
+        picked.append((sym, vol))
+    picked.sort(key=lambda x: x[1], reverse=True)
+    return [s for s, _ in picked[:top_n]]
 
 
 def binance_klines(symbol: str, interval: str = "15m", limit: int = 100) -> list[list]:
-    """Return raw klines: [open_time, o, h, l, c, v, close_time, qv, trades, tbbv, tbqv, _]"""
-    return _binance_call("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": limit})
+    """Market klines; routes to Bybit by default (US-friendly)."""
+    import sys as _sys
+    try:
+        return _bybit_klines(symbol, interval, limit)
+    except Exception as e:
+        print(f"[market] bybit kline for {symbol} failed: {e}; trying Binance mirrors", file=_sys.stderr)
+    import urllib.error
+    for host in _BINANCE_HOSTS:
+        try:
+            return http_get(f"{host}/api/v3/klines",
+                            {"symbol": symbol, "interval": interval, "limit": limit})
+        except urllib.error.HTTPError as e:
+            if e.code in (451, 403, 418, 429):
+                continue
+            raise
+        except Exception:
+            continue
+    raise RuntimeError(f"all market data sources failed for {symbol}")
 
 
 def binance_top_pairs(quote: str = "USDT", top_n: int = 50, min_vol_usd: float = 5e7) -> list[str]:
-    """Return top N pairs by 24h quote volume, filtered by min volume.
-
-    If the Binance.US fallback is in use (fewer USDT pairs), also fall back
-    to USD-quoted pairs so the scanner still has symbols to work with.
-    """
+    """Top pairs by 24h quote volume; routes to Bybit by default."""
     import sys as _sys
-    tickers = _binance_call("/api/v3/ticker/24hr")
-    if not isinstance(tickers, list):
-        print(f"[binance] unexpected ticker response type: {type(tickers)}", file=_sys.stderr)
-        return []
-
-    def pick(q: str) -> list[dict]:
-        return [
-            t for t in tickers
-            if t.get("symbol", "").endswith(q)
-            and float(t.get("quoteVolume", 0) or 0) >= min_vol_usd
-            and not any(x in t.get("symbol", "") for x in ("UP", "DOWN", "BULL", "BEAR"))
-        ]
-
-    rows = pick(quote)
-    if not rows and quote == "USDT":
-        # Binance.US fallback: try USD pairs with a lower threshold
-        rows = [
-            t for t in tickers
-            if t.get("symbol", "").endswith("USD")
-            and float(t.get("quoteVolume", 0) or 0) >= min_vol_usd / 10
-        ]
-        if rows:
-            print(f"[binance] no USDT pairs matched; fell back to {len(rows)} USD pairs", file=_sys.stderr)
-
-    rows.sort(key=lambda t: float(t.get("quoteVolume", 0) or 0), reverse=True)
-    return [t["symbol"] for t in rows[:top_n]]
+    try:
+        pairs = _bybit_top_pairs(quote, top_n, min_vol_usd)
+        if pairs:
+            print(f"[market] bybit: {len(pairs)} {quote} pairs above ${min_vol_usd:,.0f} volume", file=_sys.stderr)
+            return pairs
+    except Exception as e:
+        print(f"[market] bybit tickers failed: {e}", file=_sys.stderr)
+    # Fallback to Binance mirrors (works on self-hosted non-US runners)
+    import urllib.error
+    for host in _BINANCE_HOSTS:
+        try:
+            tickers = http_get(f"{host}/api/v3/ticker/24hr")
+            rows = [t for t in tickers
+                    if t.get("symbol", "").endswith(quote)
+                    and float(t.get("quoteVolume", 0) or 0) >= min_vol_usd
+                    and not any(x in t.get("symbol", "") for x in ("UP", "DOWN", "BULL", "BEAR"))]
+            rows.sort(key=lambda t: float(t.get("quoteVolume", 0) or 0), reverse=True)
+            print(f"[market] binance mirror {host}: {len(rows)} pairs", file=_sys.stderr)
+            return [t["symbol"] for t in rows[:top_n]]
+        except urllib.error.HTTPError as e:
+            if e.code in (451, 403, 418, 429):
+                continue
+            raise
+        except Exception:
+            continue
+    return []
 
 
 # --- Simple TA helpers (no external deps) ---

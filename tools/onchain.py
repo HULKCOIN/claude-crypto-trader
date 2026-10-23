@@ -17,7 +17,8 @@ from _common import http_get, iso_now, load_config, write_signal
 
 
 BLOCKCHAIN_UNCONFIRMED = "https://blockchain.info/unconfirmed-transactions?format=json"
-ETHERSCAN_API = "https://api.etherscan.io/api"
+ETHERSCAN_API = "https://api.etherscan.io/v2/api"
+ETH_CHAIN_ID = 1  # mainnet; V2 requires explicit chainid
 BTC_PRICE_API = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
 
 
@@ -71,6 +72,7 @@ def eth_whale_transfers(min_usd: float, eth_price: float, api_key: str | None) -
     if not api_key:
         return []  # Etherscan needs a key, but free & instant to get
     params = {
+        "chainid": ETH_CHAIN_ID,
         "module": "account",
         "action": "txlist",
         "address": list(EXCHANGE_LABELS.keys())[0],  # Binance hot wallet
