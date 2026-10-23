@@ -205,7 +205,7 @@ def cmd_place(args) -> int:
         print(json.dumps(fill, indent=2))
         return 0
 
-    # testnet or live — real CCXT call (testnet uses sandbox mode)
+    # testnet/demo/live — real CCXT call
     try:
         import ccxt  # noqa: F401
     except ImportError:
@@ -225,18 +225,86 @@ def cmd_place(args) -> int:
     qty = t["size"]["base_qty"]
 
     if mode == "live":
-        # Extra guard: live needs explicit opt-in in config
         if not cfg["broker"].get("live_confirmed"):
             print("GATE FAIL: live mode requires config.broker.live_confirmed = true", file=sys.stderr)
             return 3
 
-    order = ex.create_market_order(symbol, side, qty)
+    # 1. ENTRY: market order (fills immediately)
+    entry_order = ex.create_market_order(symbol, side, qty)
+    print(f"[broker] entry filled: {entry_order.get('id')}", file=sys.stderr)
+
+    # 2. OCO BRACKET: stop-loss + take-profit as linked exits
+    # Protects against flash crashes — orders live on the exchange, not our runtime.
+    stop_price = t["plan"]["stop"]
+    target_price = t["plan"]["target"]
+    exit_side = "sell" if side == "buy" else "buy"
+    bracket = None
+    try:
+        bracket = _place_oco(ex, cfg["broker"].get("market", "spot"), symbol,
+                              exit_side, qty, stop_price, target_price)
+        print(f"[broker] OCO bracket placed: stop={stop_price} target={target_price}", file=sys.stderr)
+    except Exception as e:
+        print(f"[broker] WARNING: OCO bracket failed: {e} — position is UNHEDGED!", file=sys.stderr)
+
     t["status"] = f"FILLED_{mode.upper()}"
-    t["broker_order"] = order
+    t["broker_order"] = entry_order
+    t["bracket"] = bracket
     rewrite_tickets(tickets)
-    write_signal({"source": "crypto-broker", "mode": mode, **order})
-    print(json.dumps(order, indent=2, default=str))
+    write_signal({"source": "crypto-broker", "mode": mode, "entry": entry_order,
+                  "bracket": bracket, "symbol": symbol})
+    print(json.dumps({"entry": entry_order, "bracket": bracket}, indent=2, default=str))
     return 0
+
+
+def _place_oco(ex, market: str, symbol: str, exit_side: str, qty: float,
+                stop_price: float, target_price: float) -> dict | None:
+    """Place a protective OCO bracket (stop-loss + take-profit).
+
+    Spot (Binance): /api/v3/orderList/oco  — native OCO as of 2024.
+    Futures (binanceusdm): two separate reduceOnly orders (STOP_MARKET + TAKE_PROFIT_MARKET).
+    """
+    if market == "futures":
+        # Futures: two separate reduceOnly orders
+        import ccxt
+        try:
+            sl = ex.create_order(symbol, "STOP_MARKET", exit_side, qty, None,
+                                 {"stopPrice": stop_price, "reduceOnly": True})
+            tp = ex.create_order(symbol, "TAKE_PROFIT_MARKET", exit_side, qty, None,
+                                 {"stopPrice": target_price, "reduceOnly": True})
+            return {"stop_order": sl, "target_order": tp, "type": "futures_pair"}
+        except Exception as e:
+            raise RuntimeError(f"futures bracket failed: {e}")
+    else:
+        # Spot OCO: binance /sapi/v1/orderList/oco
+        # Legacy ccxt uses create_order with type 'oco' not uniformly supported.
+        # Use private API call for Binance Spot:
+        try:
+            # OCO: one STOP_LOSS_LIMIT + one LIMIT_MAKER
+            # stop_limit_price = slightly below stop_price for safe execution
+            stop_limit = stop_price * 0.995  # 0.5% buffer for stop-limit fill
+            params = {
+                "symbol": symbol.replace("/", ""),
+                "side": exit_side.upper(),
+                "quantity": qty,
+                "price": target_price,            # take-profit limit
+                "stopPrice": stop_price,          # trigger
+                "stopLimitPrice": stop_limit,     # stop-limit floor
+                "stopLimitTimeInForce": "GTC",
+            }
+            result = ex.privatePostOrderOco(params)
+            return {"type": "spot_oco", "response": result}
+        except Exception as e:
+            # Fallback: two separate orders (not atomic, but protects)
+            try:
+                sl = ex.create_order(symbol, "STOP_LOSS_LIMIT", exit_side, qty,
+                                     stop_price * 0.995,
+                                     {"stopPrice": stop_price, "timeInForce": "GTC"})
+                tp = ex.create_order(symbol, "LIMIT", exit_side, qty, target_price,
+                                     {"timeInForce": "GTC"})
+                return {"type": "spot_pair_fallback", "stop_order": sl, "target_order": tp,
+                        "warning": "Not atomic — if one fills, the other needs manual cancel"}
+            except Exception as e2:
+                raise RuntimeError(f"spot OCO failed ({e}) and fallback failed ({e2})")
 
 
 def main() -> int:

@@ -85,6 +85,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
           BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BROKER_MODE_HINT: paper
         run: python3 bridge/pipeline_once.py --min-quality 0.5 --sims 2000 --max-per-run 3 || true
 

@@ -59,3 +59,24 @@ Testnet) or the built-in `mode=paper` simulator.
 3. Reads `broker.mode` from config.json — only `live` sends real orders.
 
 Any gate missing → order is rejected.
+
+## Flash-crash protection (OCO brackets)
+
+In `demo`/`testnet`/`live` mode, every entry order is immediately followed by
+a protective OCO (One-Cancels-the-Other) bracket:
+
+- **Spot (Binance)**: native `/api/v3/orderList/oco` with one STOP_LOSS_LIMIT
+  + one LIMIT_MAKER. When the price touches the stop, the take-profit is
+  auto-cancelled and vice versa.
+- **Futures (binanceusdm)**: STOP_MARKET + TAKE_PROFIT_MARKET as separate
+  reduceOnly orders.
+
+This means the stop lives **on Binance's matching engine**, not in our
+15-min cron. A flash-crash during our sleep window still triggers the
+stop in milliseconds.
+
+If the OCO placement fails (e.g. invalid lot size), the entry is kept
+and the broker logs a `WARNING: position is UNHEDGED`. Fix the symbol
+filters and try again — do NOT leave an unhedged position overnight.
+
+In `paper` mode no OCO is placed (local simulation only).

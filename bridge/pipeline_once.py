@@ -26,6 +26,12 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 from tools._common import BRIDGE_DIR, iso_now  # noqa: E402
 
+try:
+    from tools.gemini_decider import review_trade as gemini_review, format_gemini_message
+except Exception:
+    gemini_review = None
+    format_gemini_message = None
+
 
 QUEUE = BRIDGE_DIR / "signal_queue.jsonl"
 SNAPSHOT = REPO / "data" / "snapshots" / "latest.jsonl"
@@ -142,11 +148,49 @@ def process_one(sig: dict, sims: int) -> dict | None:
     if not size:
         return {"status": "error", "step": "budget-parse", "msg": out[:500]}
 
-    # 5. policy
+    # 5. policy — Rules-Decider zuerst
     er = tm.get("expected_r", 0)
     if er < 0.2:
-        return {"status": "skip", "reason": f"E[R]={er} < 0.2",
+        return {"status": "skip", "reason": f"E[R]={er} < 0.2 (Edge zu dünn)",
                 "plan": plan, "tm": tm, "risk": risk, "size": size}
+
+    # 5b. Optional: Gemini-LLM-Review als zweite Meinung (nur wenn GEMINI_API_KEY)
+    gemini_verdict = None
+    if gemini_review and os.environ.get("GEMINI_API_KEY"):
+        proposal_bundle = {
+            "scanner_hit": sig,
+            "plan": plan,
+            "timemachine": tm,
+            "size": size,
+            "risk": risk,
+        }
+        try:
+            gemini_verdict = gemini_review(proposal_bundle)
+            print(f"[auto] gemini verdict: {gemini_verdict.get('verdict')} "
+                  f"({gemini_verdict.get('confidence')}) — {gemini_verdict.get('reasoning')}")
+            # Push Gemini-Review separately
+            if format_gemini_message:
+                from urllib.parse import urlencode
+                from urllib.request import Request, urlopen
+                token = os.environ.get("TELEGRAM_BOT_TOKEN")
+                chat = os.environ.get("TELEGRAM_CHAT_ID")
+                if token and chat:
+                    msg = format_gemini_message(plan["symbol"], gemini_verdict)
+                    try:
+                        urlopen(Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                                        data=urlencode({"chat_id": chat, "text": msg[:4000],
+                                                        "parse_mode": "Markdown"}).encode()),
+                                timeout=15).read()
+                    except Exception as e:
+                        print(f"[auto] gemini notify failed: {e}", file=sys.stderr)
+            # If Gemini says SKIP → skip (LLM-Veto)
+            if gemini_verdict.get("verdict") == "SKIP":
+                return {"status": "skip",
+                        "reason": f"Gemini SKIP: {gemini_verdict.get('reasoning', '')}",
+                        "plan": plan, "tm": tm, "risk": risk, "size": size,
+                        "gemini": gemini_verdict}
+        except Exception as e:
+            print(f"[auto] gemini review error: {e}", file=sys.stderr)
 
     # 6. broker: create + approve + place (paper by default)
     size_path = BRIDGE_DIR / f"auto_size_{symbol}_{int(time.time())}.json"
