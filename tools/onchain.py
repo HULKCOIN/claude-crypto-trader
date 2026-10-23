@@ -57,14 +57,38 @@ def btc_whale_transfers(min_usd: float, btc_price: float) -> list[dict]:
     return sorted(out, key=lambda r: r["amount_usd"], reverse=True)[:20]
 
 
-# Known Ethereum exchange hot wallets (abbreviated, used to classify flows)
+# Bekannte Ethereum-Wallet-Labels (Hot Wallets, Treasuries, DeFi)
 EXCHANGE_LABELS = {
-    "0x28c6c06298d514db089934071355e5743bf21d60": "binance",
-    "0xdfd5293d8e347dfe59e90efd55b2956a1343963d": "binance",
-    "0x56eddb7aa87536c09ccc2793473599fd21a8b17f": "binance",
-    "0xa910f92acdaf488fa6ef02174fb86208ad7722ba": "coinbase",
-    "0x71660c4005ba85c37ccec55d0c4493e66fe775d3": "coinbase",
-    "0x267be1c1d684f78cb4f6a176c4911b741e4ffdc0": "kraken",
+    # Binance
+    "0x28c6c06298d514db089934071355e5743bf21d60": "Binance 14",
+    "0xdfd5293d8e347dfe59e90efd55b2956a1343963d": "Binance 7",
+    "0x56eddb7aa87536c09ccc2793473599fd21a8b17f": "Binance 8",
+    "0x9696f59e4d72e237be84ffd425dcad154bf96976": "Binance Deposit",
+    "0x4976a4a02f38326660d17bf34b431dc6e2eb2327": "Binance Cold",
+    # Coinbase
+    "0xa910f92acdaf488fa6ef02174fb86208ad7722ba": "Coinbase 10",
+    "0x71660c4005ba85c37ccec55d0c4493e66fe775d3": "Coinbase 1",
+    "0x503828976d22510aad0201ac7ec88293211d23da": "Coinbase 2",
+    # Kraken
+    "0x267be1c1d684f78cb4f6a176c4911b741e4ffdc0": "Kraken 4",
+    "0xae2d4617c862309a3d75a0ffb358c7a5009c673f": "Kraken 10",
+    # OKX
+    "0x5041ed759dd4afc3a72b8192c143f72f4724081a": "OKX",
+    # Bitfinex
+    "0x1151314c646ce4e0efd76d1af4760ae66a9fe30f": "Bitfinex",
+    # Known Treasuries / Smart Money
+    "0x5a52e96bacdabb82fd05763e25335261b270efcb": "Tether Treasury",
+    "0x5754284f345afc66a98fbb0a0afe71e0f007b949": "Tether Treasury",
+    "0x742d35cc6634c0532925a3b844bc9e7595f0beb3": "Bitfinex Treasury",
+    "0x8488c316e23504b8554e4bdb408d2f08b5bbd36f": "Jump Trading",
+    # Memecoin treasuries (examples)
+    "0x6cc5f688a315f3dc28a7781717a9a798a59fda7b": "OKX Hot",
+}
+
+CHAIN_LABELS = {
+    "ethereum": "ETH",
+    "bitcoin": "BTC",
+    "binance-smart-chain": "BSC",
 }
 
 
@@ -101,29 +125,38 @@ def eth_whale_transfers(min_usd: float, eth_price: float, api_key: str | None) -
         amount_usd = value_eth * eth_price
         if amount_usd < min_usd:
             continue
-        frm = (tx.get("from") or "").lower()
-        to = (tx.get("to") or "").lower()
-        frm_label = EXCHANGE_LABELS.get(frm, "wallet")
-        to_label = EXCHANGE_LABELS.get(to, "wallet")
-        if to_label in ("binance", "coinbase", "kraken") and frm_label == "wallet":
+        frm_addr = (tx.get("from") or "").lower()
+        to_addr = (tx.get("to") or "").lower()
+        frm_label = EXCHANGE_LABELS.get(frm_addr, "Unknown Wallet")
+        to_label = EXCHANGE_LABELS.get(to_addr, "Unknown Wallet")
+        # Richtung bestimmen
+        is_exchange_frm = any(x in frm_label for x in ("Binance", "Coinbase", "Kraken", "OKX", "Bitfinex"))
+        is_exchange_to = any(x in to_label for x in ("Binance", "Coinbase", "Kraken", "OKX", "Bitfinex"))
+        if is_exchange_to and not is_exchange_frm:
             signal = "potential_sell_pressure"
-        elif frm_label in ("binance", "coinbase", "kraken") and to_label == "wallet":
+        elif is_exchange_frm and not is_exchange_to:
             signal = "potential_accumulation"
+        elif is_exchange_frm and is_exchange_to:
+            signal = "exchange_to_exchange"
         else:
-            signal = "large_eth_transfer"
+            signal = "wallet_to_wallet"
         out.append({
             "source": "crypto-onchain",
             "chain": "ethereum",
             "symbol": "ETH",
             "amount_eth": round(value_eth, 2),
             "amount_usd": round(amount_usd, 0),
-            "from": frm_label,
-            "to": to_label,
+            "from_addr": frm_addr,
+            "to_addr": to_addr,
+            "from_label": frm_label,
+            "to_label": to_label,
             "signal": signal,
             "tx_hash": tx.get("hash"),
             "ts": iso_now(),
         })
     return out
+
+
 
 
 def main() -> int:

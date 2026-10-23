@@ -19,6 +19,12 @@ REPO = Path(__file__).resolve().parent.parent
 QUEUE = REPO / "bridge" / "signal_queue.jsonl"
 SNAPSHOT = REPO / "data" / "snapshots" / "latest.jsonl"
 LAST_PUSH = REPO / "data" / "snapshots" / "last_push_ts.txt"
+DEDUP_LOG = REPO / "data" / "snapshots" / "pushed_dedup.jsonl"
+DEDUP_WINDOW_HOURS = 12  # selbe News/Whale max alle 12h — 2× pro Tag
+
+
+import hashlib
+import time as _time
 
 
 def read_last_ts() -> str:
@@ -30,6 +36,49 @@ def read_last_ts() -> str:
 def write_last_ts(ts: str) -> None:
     LAST_PUSH.parent.mkdir(parents=True, exist_ok=True)
     LAST_PUSH.write_text(ts)
+
+
+def _signal_dedup_key(sig: dict) -> str:
+    """Erzeugt stabilen Fingerprint pro News/Whale für Dedup."""
+    src = sig.get("source", "")
+    if src == "crypto-news":
+        base = f"news|{sig.get('provider', '')}|{str(sig.get('headline', ''))[:80].lower()}"
+    elif src == "crypto-onchain":
+        base = f"whale|{sig.get('tx_hash', '')}"
+    else:
+        base = f"{src}|{sig.get('symbol', '')}|{sig.get('setup', sig.get('signal', ''))}"
+    return hashlib.sha256(base.encode()).hexdigest()[:16]
+
+
+def _load_dedup_log() -> dict[str, float]:
+    """Lädt {fingerprint: last_pushed_epoch}."""
+    if not DEDUP_LOG.exists():
+        return {}
+    out = {}
+    cutoff = _time.time() - DEDUP_WINDOW_HOURS * 3600 * 2  # Garbage-collect alte
+    for line in DEDUP_LOG.read_text().splitlines():
+        try:
+            rec = json.loads(line)
+            if rec.get("ts", 0) >= cutoff:
+                out[rec["fp"]] = rec["ts"]
+        except Exception:
+            continue
+    return out
+
+
+def _save_dedup_log(log: dict[str, float]) -> None:
+    DEDUP_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with open(DEDUP_LOG, "w") as f:
+        for fp, ts in log.items():
+            f.write(json.dumps({"fp": fp, "ts": ts}) + "\n")
+
+
+def _is_duplicate(sig: dict, dedup: dict[str, float]) -> bool:
+    fp = _signal_dedup_key(sig)
+    last = dedup.get(fp, 0)
+    if _time.time() - last < DEDUP_WINDOW_HOURS * 3600:
+        return True
+    return False
 
 
 def tg_send(text: str, channel: str = "trades") -> bool:
@@ -75,18 +124,31 @@ def format_onchain(s: dict) -> str:
     symbol = s.get("symbol", "?")
     signal = s.get("signal", "")
     erklaerung = SIGNAL_ERKLAERUNG.get(signal, signal)
+    frm = s.get("from_label") or s.get("from") or "Unknown"
+    to = s.get("to_label") or s.get("to") or "Unknown"
+    tx = s.get("tx_hash", "")
     bewertung = ""
     if "sell_pressure" in signal:
-        bewertung = "\n📉 *Bedeutung:* Positionen schließen oder short erwägen"
+        bewertung = "\n📉 *Bedeutung:* Verkaufsdruck zu erwarten — Long-Positionen prüfen"
     elif "accumulation" in signal:
-        bewertung = "\n📈 *Bedeutung:* Long-Setup zusätzlich bestätigt"
+        bewertung = "\n📈 *Bedeutung:* Smart Money sammelt ein — Long-Setups zusätzlich bestätigt"
     elif "liquidity_in" in signal:
-        bewertung = "\n📈 *Bedeutung:* Bullish für den ganzen Markt (72h-Horizont)"
+        bewertung = "\n📈 *Bedeutung:* Neue Liquidität im Markt (bullish 72h)"
+    elif signal == "exchange_to_exchange":
+        bewertung = "\n⚪ *Bedeutung:* Exchange-interner Transfer (OTC-Deal oder Rebalancing — neutral)"
+    elif signal == "wallet_to_wallet":
+        bewertung = "\n⚪ *Bedeutung:* Private Wallet-Transfer — Smart-Money-Umverteilung"
+    tx_link = f"\n🔗 [Transaktion anzeigen](https://etherscan.io/tx/{tx})" if tx and chain == "ETHEREUM" else ""
+    if tx and chain == "BITCOIN":
+        tx_link = f"\n🔗 [Transaktion anzeigen](https://blockchair.com/bitcoin/transaction/{tx})"
     return (
         f"🐋 *Whale-Alarm — {chain} {symbol}*\n"
         f"Betrag: *${amount:,.0f}*\n"
+        f"Von: `{frm}`\n"
+        f"Nach: `{to}`\n"
         f"Signal: {erklaerung}"
         f"{bewertung}"
+        f"{tx_link}"
     )
 
 
@@ -94,7 +156,16 @@ def format_news(s: dict) -> str:
     sev = s.get("severity", "normal")
     sym = s.get("symbol") or "Markt"
     icon = "🔥" if sev == "high" else "📰"
-    hl = str(s.get("headline", ""))[:250]
+    hl_en = str(s.get("headline", ""))[:250].replace("<![CDATA[", "").replace("]]>", "").strip()
+    # Übersetzung via Gemini (optional, cached)
+    hl_de = ""
+    try:
+        from translate_news import translate
+        de = translate(hl_en)
+        if de and de.lower() != hl_en.lower():
+            hl_de = f"\n🇩🇪 _{de}_"
+    except Exception:
+        pass
     sentiment = s.get("sentiment", "neutral")
     sent_label = {"positive": "🟢 positiv", "negative": "🔴 negativ"}.get(sentiment, "⚪ neutral")
     provider = s.get("provider", "unbekannt")
@@ -107,7 +178,8 @@ def format_news(s: dict) -> str:
         bewertung = "\n⚠️ *Einschätzung:* Negativ-Impact möglich — Long-Positionen prüfen"
     return (
         f"{icon} *{sym}* ({sent_label})\n"
-        f"{hl}\n"
+        f"{hl_en}"
+        f"{hl_de}\n"
         f"_Quelle: {provider}_"
         f"{link_line}"
         f"{bewertung}"
@@ -178,12 +250,24 @@ def main() -> int:
 
     cutoff = read_last_ts()
     print(f"[push] cutoff ts: {cutoff}")
+    dedup = _load_dedup_log()
     new = [s for s in signals if s.get("ts", "") > cutoff and should_push(s, args)]
-    print(f"[push] {len(new)} new signals above thresholds (of {len(signals)} total)")
+    print(f"[push] {len(new)} new candidate signals (of {len(signals)} total)")
+
+    # Dedup-Filter: selbe News/Whale max alle 12h
+    deduped = []
+    skipped_dup = 0
+    for sig in new:
+        if _is_duplicate(sig, dedup):
+            skipped_dup += 1
+            continue
+        deduped.append(sig)
+    print(f"[push] {skipped_dup} duplicates blocked (12h window)")
 
     max_ts = cutoff
     sent = 0
-    for sig in new:
+    now_epoch = _time.time()
+    for sig in deduped:
         src = sig.get("source", "")
         fmt = FORMATTERS.get(src)
         if not fmt:
@@ -199,6 +283,7 @@ def main() -> int:
             sent += 1
         elif tg_send(text, channel=ch):
             sent += 1
+            dedup[_signal_dedup_key(sig)] = now_epoch
             print(f"[push] sent {src}:{sig.get('symbol')} → {ch}")
         ts = sig.get("ts", "")
         if ts > max_ts:
@@ -206,8 +291,9 @@ def main() -> int:
 
     if sent > 0 and not args.dry_run and max_ts > cutoff:
         write_last_ts(max_ts)
-        print(f"[push] advanced cutoff to {max_ts}")
-    print(f"[push] {sent} notifications sent")
+        _save_dedup_log(dedup)
+        print(f"[push] advanced cutoff to {max_ts}, dedup saved")
+    print(f"[push] {sent} notifications sent, {skipped_dup} duplicates skipped")
     return 0
 
 

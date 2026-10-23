@@ -2,8 +2,8 @@
   "universe": {
     "exchange": "coinbase",
     "quote": "USD",
-    "top_n": 30,
-    "min_volume_usd_24h": 5000000
+    "top_n": 60,
+    "min_volume_usd_24h": 2000000
   },
   "scanner": {
     "timeframe": "15m",

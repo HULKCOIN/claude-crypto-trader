@@ -157,17 +157,56 @@ def _yahoo_chart(symbol: str, interval: str, limit: int) -> list[list]:
 # Top liquid Coinbase USD pairs — hardcoded to avoid 150+ stats calls per scan.
 # Keep BTC/ETH/majors + enough altcoins for setup variety.
 COINBASE_TOP_USD = [
+    # Top-10 by Marktkap
     "BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "DOGE-USD",
     "ADA-USD", "AVAX-USD", "LINK-USD", "DOT-USD", "LTC-USD",
+    # Majors + Layer-1/2
     "SHIB-USD", "ATOM-USD", "UNI-USD", "BCH-USD", "NEAR-USD",
     "APT-USD", "ARB-USD", "OP-USD", "FIL-USD", "INJ-USD",
     "SUI-USD", "SEI-USD", "TIA-USD", "FET-USD", "RENDER-USD",
     "HBAR-USD", "VET-USD", "AAVE-USD", "ICP-USD", "ALGO-USD",
-    "GRT-USD", "CRV-USD", "SAND-USD", "MANA-USD", "APE-USD",
-    "AXS-USD", "COMP-USD", "SNX-USD", "YFI-USD", "LDO-USD",
-    "PEPE-USD", "WIF-USD", "BONK-USD", "JUP-USD", "PYTH-USD",
-    "JASMY-USD", "FLOKI-USD", "ONDO-USD", "ENS-USD", "DYDX-USD",
+    # DeFi
+    "GRT-USD", "CRV-USD", "COMP-USD", "SNX-USD", "YFI-USD",
+    "LDO-USD", "MKR-USD", "SUSHI-USD", "1INCH-USD", "BAL-USD",
+    # Gaming / Metaverse
+    "SAND-USD", "MANA-USD", "APE-USD", "AXS-USD", "IMX-USD",
+    "GALA-USD", "ENJ-USD", "CHZ-USD",
+    # Memecoins (user interest)
+    "PEPE-USD", "WIF-USD", "BONK-USD", "FLOKI-USD",
+    # SOL-Ökosystem
+    "JUP-USD", "PYTH-USD", "JTO-USD", "RAY-USD",
+    # ETH-Ökosystem
+    "ENS-USD", "LRC-USD",
+    # Perp DEX / Derivatives
+    "DYDX-USD", "GMX-USD",
+    # AI / Big Data
+    "JASMY-USD", "AKT-USD",
+    # Payments / RWA
+    "ONDO-USD", "QNT-USD",
+    # Rohstoff-ähnliche
+    "PAXG-USD",  # Pax Gold — on-chain Gold
 ]
+
+# Yahoo-Tickers für Non-Crypto Marktdaten (Rohstoffe, Aktienindizes)
+# Verwendbar manuell: binance_klines('GC=F', '1d') funktioniert via Yahoo-Primary
+YAHOO_EXTRA_TICKERS = {
+    # Rohstoffe (Futures)
+    "GC=F": "Gold-Futures",
+    "SI=F": "Silber-Futures",
+    "CL=F": "WTI-Rohöl",
+    "BZ=F": "Brent-Rohöl",
+    "NG=F": "Erdgas",
+    "HG=F": "Kupfer",
+    # Stock-Indizes
+    "^GSPC": "S&P 500",
+    "^IXIC": "Nasdaq Composite",
+    "^DJI": "Dow Jones",
+    "^GDAXI": "DAX",
+    "^FTSE": "FTSE 100",
+    "^VIX": "Volatilitäts-Index",
+    # FX / Alternative
+    "DX=F": "US-Dollar-Index",
+}
 
 _COINBASE_GRAN = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "6h": 21600, "1d": 86400}
 

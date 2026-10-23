@@ -19,6 +19,7 @@ import time
 from collections import defaultdict, Counter
 from pathlib import Path
 from urllib.parse import urlencode
+from urllib.request import Request as _Request, urlopen as _urlopen
 from urllib.request import Request, urlopen
 
 REPO = Path(__file__).resolve().parent.parent
@@ -168,8 +169,58 @@ def _price_change_pct(symbol: str, since_ts: str, hours: int) -> float | None:
     return (end / start - 1) * 100 if start else None
 
 
+def _gemini_momentum(context: dict) -> str:
+    """Gemini erstellt Momentum-Prognose auf Basis der aggregierten Tagesdaten.
+    Mit expliziter Unsicherheits-Angabe wenn Datenbasis dünn ist.
+    """
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        return ""
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + key
+    prompt = f"""Du bist Krypto-Marktanalyst. Erstelle eine kurze Momentum-Prognose für die
+nächsten 24h basierend auf den folgenden aggregierten Tagesdaten.
+
+TAGES-KONTEXT:
+- High-Impact News gesamt: {context['news_high']} (positiv: {context['news_pos']}, negativ: {context['news_neg']})
+- Whale-Transfers ≥$1M: {context['whales_big']}
+- Whale-Volumen gesamt: ${context['whales_volume']:,.0f}
+- Verkaufsdruck-Signale (Transfers zu Exchange): {context['sell_pressure']}
+- Akkumulations-Signale (Transfers von Exchange): {context['accumulation']}
+- Fear & Greed Index: {context['fng']} ({context['fng_label']})
+- Top Headlines: {context['headlines'][:3]}
+
+Antworte in genau diesem Format (deutsch, kurz):
+
+📈 *Momentum-Prognose nächste 24h:*
+[1-2 Sätze: steigend/fallend/seitwärts, mit konkretem Grund aus den Daten]
+
+🎯 *Konfidenz:* [niedrig/mittel/hoch] — [kurze Begründung warum]
+
+⚖️ *Positionierung:* [z.B. "mehr Longs als Shorts attraktiv" oder "defensiv, Shorts bevorzugen" oder "neutral abwarten"]
+
+⚠️ *Unsicherheits-Faktoren:* [was spricht gegen die Prognose]
+
+WICHTIG: Wenn die Datenbasis dünn ist (wenige News, wenige Whales), SAG ES OFFEN:
+"Datenbasis zu dünn für belastbare Prognose."
+Erfinde NIE Zahlen oder Trends die nicht in den Daten stehen."""
+
+    body = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 400},
+    }
+    try:
+        req = Request(url, data=json.dumps(body).encode(),
+                      headers={"Content-Type": "application/json"})
+        with urlopen(req, timeout=20) as r:
+            resp = json.loads(r.read().decode())
+        return resp["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        print(f"[momentum] gemini error: {e}", file=sys.stderr)
+        return ""
+
+
 def daily() -> int:
-    """Tägliche Zusammenfassung: wie viele News, wie viele Whales, Fear&Greed."""
+    """Tägliche Zusammenfassung + Momentum-Prognose via Gemini."""
     signals = load_signals()
     cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ",
                            time.gmtime(time.time() - 24 * 3600))
@@ -181,11 +232,26 @@ def daily() -> int:
     news_neg = [n for n in news_high if n.get("sentiment") == "negative"]
     whales = [s for s in recent if s.get("source") == "crypto-onchain"]
     whales_big = [w for w in whales if (w.get("amount_usd") or 0) >= 1_000_000]
+    sell_pressure = [w for w in whales if w.get("signal") == "potential_sell_pressure"]
+    accumulation = [w for w in whales if w.get("signal") == "potential_accumulation"]
     sent = next((s for s in signals if s.get("source") == "crypto-sentiment"), {})
 
-    # Top Themen aus Headlines
     headlines = [str(n.get("headline", "")) for n in news_high][:5]
     topics = "\n".join(f"• {h[:120]}" for h in headlines) or "_keine_"
+
+    # Momentum-Prognose via Gemini
+    momentum = _gemini_momentum({
+        "news_high": len(news_high),
+        "news_pos": len(news_pos),
+        "news_neg": len(news_neg),
+        "whales_big": len(whales_big),
+        "whales_volume": sum(w.get("amount_usd", 0) or 0 for w in whales),
+        "sell_pressure": len(sell_pressure),
+        "accumulation": len(accumulation),
+        "fng": sent.get("fear_greed_index", "?"),
+        "fng_label": sent.get("fear_greed_label", "?"),
+        "headlines": headlines,
+    })
 
     msg = (
         f"📅 *TAGES-REPORT* ({time.strftime('%d.%m.%Y')})\n\n"
@@ -193,13 +259,16 @@ def daily() -> int:
         f"• Gesamt: {len(news)}\n"
         f"• High-Impact: {len(news_high)} (🟢 {len(news_pos)} / 🔴 {len(news_neg)})\n\n"
         f"*🐋 Whales (24h):*\n"
-        f"• Transfers: {len(whales)}\n"
+        f"• Transfers gesamt: {len(whales)}\n"
         f"• ≥ $1 Mio: {len(whales_big)}\n"
-        f"• Volumen gesamt: ${sum(w.get('amount_usd', 0) or 0 for w in whales):,.0f}\n\n"
-        f"*📊 Market-Sentiment:*\n"
+        f"• 📉 Verkaufsdruck (→Exchange): {len(sell_pressure)}\n"
+        f"• 📈 Akkumulation (←Exchange): {len(accumulation)}\n"
+        f"• Volumen: ${sum(w.get('amount_usd', 0) or 0 for w in whales):,.0f}\n\n"
+        f"*📊 Sentiment:*\n"
         f"• Fear & Greed: {sent.get('fear_greed_index', '?')} ({sent.get('fear_greed_label', '?')})\n"
         f"• Verdict: {sent.get('verdict', '?')}\n\n"
-        f"*🔥 Top-News heute:*\n{topics}"
+        f"*🔥 Top-News heute:*\n{topics}\n\n"
+        + (momentum if momentum else "_Momentum-Prognose nicht verfügbar (GEMINI_API_KEY fehlt)_")
     )
     _tg_send(msg, channel="news")
     print("[news-digest] daily sent")
