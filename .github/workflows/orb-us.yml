@@ -1,0 +1,27 @@
+name: ORB US-Stocks (NYSE/Nasdaq)
+
+# Opening Range Breakout Scanner — nur während US-Börsenzeiten.
+# NYSE 9:30-16:00 ET (13:30-20:00 UTC Sommer).
+# Lauf alle 15 Min zwischen 9:50 ET und 15:00 ET.
+on:
+  schedule:
+    # 13:50 UTC bis 20:00 UTC, alle 15 Min, nur Werktage
+    - cron: "50 13-20 * * 1-5"
+    - cron: "5,20,35,50 14-19 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  orb-us:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run US ORB Scanner
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: cd tools && python3 stock_orb.py --market us

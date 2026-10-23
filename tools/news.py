@@ -84,16 +84,29 @@ def fetch_coingecko_trending() -> list[dict]:
 
 
 HIGH_IMPACT = re.compile(
-    r"\b(hack|exploit|sec\s+sues?|ban|etf|approv(ed|al)|listing|listed|halving|upgrade|fork|airdrop|launch(es|ed)?|partnership)\b",
+    r"\b(hack|exploit|sec\s+sues?|ban|etf|approv(ed|al)|listing|listed|halving|upgrade|fork|airdrop|launch(es|ed)?|partnership|ipo|lawsuit)\b",
     re.I,
 )
-NEGATIVE = re.compile(r"\b(hack|exploit|sues?|ban|crash|liquidat(ed|ion)|rug)\b", re.I)
+NEGATIVE = re.compile(r"\b(hack|exploit|sues?|sued|ban|crash|liquidat(ed|ion)|rug|collapse|bankruptcy|scam)\b", re.I)
+
+# Public-Figure-Detection: Namen die News hochstufen und markieren
+PUBLIC_FIGURES = re.compile(
+    r"\b(trump|elon\s+musk|musk|vitalik|buterin|cz|changpeng\s+zhao|sbf|bankman[-\s]fried|"
+    r"cathie\s+wood|michael\s+saylor|jack\s+dorsey|peter\s+schiff|dalio|"
+    r"saylor|snowden|hoskinson|charles\s+hoskinson|do\s+kwon|"
+    r"blackrock|fidelity|vanguard|ark\s+invest|microstrategy|tesla|"
+    r"gensler|yellen|powell|biden|white\s+house|congress|"
+    r"paul\s+atkins|senator\s+(warren|lummis|gillibrand))\b",
+    re.I,
+)
 
 
-def classify(title: str) -> tuple[str, str]:
-    severity = "high" if HIGH_IMPACT.search(title or "") else "normal"
+def classify(title: str) -> tuple[str, str, bool]:
+    """Returns (severity, sentiment, is_public_figure)."""
+    has_figure = bool(PUBLIC_FIGURES.search(title or ""))
+    severity = "high" if (HIGH_IMPACT.search(title or "") or has_figure) else "normal"
     sentiment = "negative" if NEGATIVE.search(title or "") else ("positive" if severity == "high" else "neutral")
-    return severity, sentiment
+    return severity, sentiment, has_figure
 
 
 def main() -> int:
@@ -121,11 +134,11 @@ def main() -> int:
         write_signal(row); out.append(row)
 
     # 2) CoinDesk RSS (free, unlimited)
-    for item in fetch_rss(COINDESK_RSS, limit=10):
+    for item in fetch_rss(COINDESK_RSS, limit=15):
         title = item.get("title", "")
         if args.symbol and args.symbol.upper() not in title.upper():
             continue
-        sev, sent = classify(title)
+        sev, sent, has_fig = classify(title)
         row = {
             "source": "crypto-news",
             "provider": "coindesk",
@@ -135,16 +148,17 @@ def main() -> int:
             "published_at": item.get("pubdate"),
             "severity": sev,
             "sentiment": sent,
+            "public_figure": has_fig,
             "ts": iso_now(),
         }
         write_signal(row); out.append(row)
 
     # 3) Cointelegraph RSS (free, unlimited)
-    for item in fetch_rss(COINTELEGRAPH_RSS, limit=10):
+    for item in fetch_rss(COINTELEGRAPH_RSS, limit=15):
         title = item.get("title", "")
         if args.symbol and args.symbol.upper() not in title.upper():
             continue
-        sev, sent = classify(title)
+        sev, sent, has_fig = classify(title)
         row = {
             "source": "crypto-news",
             "provider": "cointelegraph",
@@ -154,6 +168,7 @@ def main() -> int:
             "published_at": item.get("pubdate"),
             "severity": sev,
             "sentiment": sent,
+            "public_figure": has_fig,
             "ts": iso_now(),
         }
         write_signal(row); out.append(row)

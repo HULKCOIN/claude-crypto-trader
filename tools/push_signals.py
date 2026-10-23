@@ -155,7 +155,11 @@ def format_onchain(s: dict) -> str:
 def format_news(s: dict) -> str:
     sev = s.get("severity", "normal")
     sym = s.get("symbol") or "Markt"
-    icon = "🔥" if sev == "high" else "📰"
+    has_fig = s.get("public_figure", False)
+    if has_fig:
+        icon = "👤 🔥"
+    else:
+        icon = "🔥" if sev == "high" else "📰"
     hl_en = str(s.get("headline", ""))[:250].replace("<![CDATA[", "").replace("]]>", "").strip()
     # Übersetzung via Gemini (optional, cached)
     hl_de = ""
@@ -172,7 +176,9 @@ def format_news(s: dict) -> str:
     url = s.get("url", "")
     link_line = f"\n[→ Artikel öffnen]({url})" if url else ""
     bewertung = ""
-    if sev == "high" and sentiment == "positive":
+    if has_fig:
+        bewertung = "\n👤 *Public Figure erwähnt* — oft stärkerer Preis-Impact\n💡 Check: Welche Position oder Statement? Direkt Trade-Setup möglich"
+    elif sev == "high" and sentiment == "positive":
         bewertung = "\n💡 *Einschätzung:* Könnte Preis-Impuls auslösen — Watchlist beobachten"
     elif sev == "high" and sentiment == "negative":
         bewertung = "\n⚠️ *Einschätzung:* Negativ-Impact möglich — Long-Positionen prüfen"

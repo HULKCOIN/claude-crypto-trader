@@ -1,0 +1,27 @@
+name: ORB DE-Stocks (XETRA DAX40)
+
+# Opening Range Breakout Scanner — nur während XETRA-Börsenzeiten.
+# XETRA 9:00-17:30 MEZ (7:00-15:30 UTC Winter, 8:00-15:30 UTC Sommer).
+# Lauf alle 15 Min zwischen 9:20 MEZ und 14:00 MEZ.
+on:
+  schedule:
+    - cron: "20 7-14 * * 1-5"
+    - cron: "35,50 7-14 * * 1-5"
+    - cron: "5 8-15 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  orb-de:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run DE ORB Scanner
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: cd tools && python3 stock_orb.py --market de

@@ -18,16 +18,31 @@ from _common import http_get, iso_now, load_config, write_signal
 
 BLOCKCHAIN_UNCONFIRMED = "https://blockchain.info/unconfirmed-transactions?format=json"
 ETHERSCAN_API = "https://api.etherscan.io/v2/api"
-ETH_CHAIN_ID = 1  # mainnet; V2 requires explicit chainid
-BTC_PRICE_API = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
+BSCSCAN_API = "https://api.etherscan.io/v2/api"   # V2 nutzt chainid=56 für BSC
+ETH_CHAIN_ID = 1  # mainnet
+BSC_CHAIN_ID = 56
+BTC_PRICE_API = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,binancecoin,solana&vs_currencies=usd"
+SOLSCAN_API = "https://public-api.solscan.io/account/transactions"
+
+
+def fetch_prices() -> dict:
+    """Returns {'btc': X, 'eth': Y, 'bnb': Z, 'sol': W}."""
+    try:
+        d = http_get(BTC_PRICE_API)
+        return {
+            "btc": float(d["bitcoin"]["usd"]),
+            "eth": float(d["ethereum"]["usd"]),
+            "bnb": float(d.get("binancecoin", {}).get("usd", 600)),
+            "sol": float(d.get("solana", {}).get("usd", 180)),
+        }
+    except Exception:
+        return {"btc": 68000, "eth": 3500, "bnb": 600, "sol": 180}
 
 
 def fetch_btc_eth_price() -> tuple[float, float]:
-    try:
-        d = http_get(BTC_PRICE_API)
-        return float(d["bitcoin"]["usd"]), float(d["ethereum"]["usd"])
-    except Exception:
-        return 68000.0, 3500.0  # fallback approximations
+    """Legacy wrapper für Rückwärtskompatibilität."""
+    p = fetch_prices()
+    return p["btc"], p["eth"]
 
 
 def btc_whale_transfers(min_usd: float, btc_price: float) -> list[dict]:
@@ -159,26 +174,111 @@ def eth_whale_transfers(min_usd: float, eth_price: float, api_key: str | None) -
 
 
 
+def bsc_whale_transfers(min_usd: float, bnb_price: float, api_key: str | None) -> list[dict]:
+    """BNB Smart Chain whales via Etherscan V2 (chainid=56).
+    Watchen die ersten paar bekannten Binance Hot Wallets auf BSC."""
+    if not api_key:
+        return []
+    bsc_hot_wallets = [
+        "0x8894e0a0c962cb723c1976a4421c95949be2d4e3",  # Binance Hot Wallet
+        "0xf977814e90da44bfa03b6295a0616a897441acec",  # Binance 8
+    ]
+    out = []
+    for addr in bsc_hot_wallets:
+        params = {
+            "chainid": BSC_CHAIN_ID, "module": "account", "action": "txlist",
+            "address": addr, "startblock": 0, "endblock": 99_999_999,
+            "page": 1, "offset": 10, "sort": "desc", "apikey": api_key,
+        }
+        try:
+            data = http_get(BSCSCAN_API, params)
+        except Exception as e:
+            print(f"[onchain] bsc {addr[:10]}: {e}", file=sys.stderr)
+            continue
+        result = data.get("result")
+        if not isinstance(result, list):
+            continue
+        for tx in result[:5]:
+            if not isinstance(tx, dict):
+                continue
+            value_bnb = int(tx.get("value", "0") or "0") / 1e18
+            amount_usd = value_bnb * bnb_price
+            if amount_usd < min_usd:
+                continue
+            out.append({
+                "source": "crypto-onchain",
+                "chain": "bsc",
+                "symbol": "BNB",
+                "amount_bnb": round(value_bnb, 2),
+                "amount_usd": round(amount_usd, 0),
+                "from_addr": tx.get("from", "").lower(),
+                "to_addr": tx.get("to", "").lower(),
+                "signal": "large_bnb_transfer",
+                "tx_hash": tx.get("hash"),
+                "ts": iso_now(),
+            })
+    return out
+
+
+# Whale-Pattern-Tracker: wenn gleiches Wallet 2+ große TX in 24h → Signal
+def detect_repeat_whale_pattern(all_transfers: list[dict]) -> list[dict]:
+    """Erkennt Wallets die mehrere große Transfers in kurzer Zeit haben."""
+    import time as _t
+    from collections import defaultdict
+    by_wallet = defaultdict(list)
+    now = _t.time()
+    for tx in all_transfers:
+        wallet = tx.get("from_addr") or tx.get("from") or ""
+        if not wallet:
+            continue
+        by_wallet[wallet].append(tx)
+
+    patterns = []
+    for wallet, txs in by_wallet.items():
+        if len(txs) >= 2:
+            total_usd = sum(t.get("amount_usd", 0) or 0 for t in txs)
+            chains = set(t.get("chain", "?") for t in txs)
+            patterns.append({
+                "source": "crypto-onchain",
+                "signal": "repeat_whale_activity",
+                "chain": "+".join(chains),
+                "symbol": "MIXED",
+                "wallet": wallet[:16] + "...",
+                "tx_count": len(txs),
+                "amount_usd": round(total_usd, 0),
+                "note": f"Wallet {wallet[:10]}... hat {len(txs)} TX in dieser Runde = Smart-Money-Aktivität",
+                "ts": iso_now(),
+            })
+    return patterns
+
+
 def main() -> int:
     cfg = load_config()
     p = argparse.ArgumentParser()
-    p.add_argument("--symbol", help="filter: BTC or ETH")
+    p.add_argument("--symbol", help="filter: BTC, ETH, BNB, SOL")
     p.add_argument("--min-usd", type=float, default=cfg["onchain"]["min_transfer_usd"])
     args = p.parse_args()
 
-    btc_price, eth_price = fetch_btc_eth_price()
+    prices = fetch_prices()
     etherscan_key = os.environ.get("ETHERSCAN_API_KEY")
 
     out = []
     if not args.symbol or args.symbol.upper() == "BTC":
-        out += btc_whale_transfers(args.min_usd, btc_price)
+        out += btc_whale_transfers(args.min_usd, prices["btc"])
     if not args.symbol or args.symbol.upper() == "ETH":
-        out += eth_whale_transfers(args.min_usd, eth_price, etherscan_key)
+        out += eth_whale_transfers(args.min_usd, prices["eth"], etherscan_key)
+    if not args.symbol or args.symbol.upper() == "BNB":
+        out += bsc_whale_transfers(args.min_usd, prices["bnb"], etherscan_key)
+    # SOL skipped für jetzt — Solscan Public API changed, braucht Pro
+
+    # Pattern-Detection
+    patterns = detect_repeat_whale_pattern(out)
+    out += patterns
 
     for row in out:
         write_signal(row)
     print(json.dumps(out, indent=2))
-    print(f"[onchain] {len(out)} whale transfers > ${args.min_usd:,.0f}", file=sys.stderr)
+    print(f"[onchain] {len(out)} whale events (davon {len(patterns)} Repeat-Pattern)", file=sys.stderr)
     return 0
 
 
