@@ -14,7 +14,7 @@ Total time: ~10 min.
 ### Create the bot
 1. Telegram → search **`@BotFather`** → start chat
 2. Send: `/newbot`
-3. Pick a name: `HULKCOIN Crypto Signals`
+3. Pick a name: `Crypto Signals`
 4. Pick a username ending in `bot`: `hulkcoin_signals_bot`
 5. BotFather replies with your token: `123456789:ABC-xyz...`
 6. GitHub secret `TELEGRAM_BOT_TOKEN` = that token

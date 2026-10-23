@@ -40,7 +40,7 @@ COMMANDS = [
 ]
 
 BOT_DESCRIPTION = (
-    "HULKCOIN Crypto Signals Bot — Live-News, Whale-Alerts, "
+    "Crypto Signals Bot — Live-News, Whale-Alerts, "
     "Sentiment-Analyse und automatische Trading-Signale für Crypto. "
     "Nutze /help für alle Befehle."
 )
@@ -50,7 +50,7 @@ BOT_SHORT_DESCRIPTION = (
     "Komplett automatisiert, Paper-Trading. DYOR."
 )
 
-INFO_MESSAGE = """🚀 *HULKCOIN Crypto Signals — Info*
+INFO_MESSAGE = """🚀 *Crypto Signals — Info*
 
 Willkommen in der offiziellen Signal-Gruppe. Hier bekommst du alle 5 Minuten eine Lage-Übersicht aus einem vollautomatisierten Trading-System.
 
@@ -145,7 +145,7 @@ def post_info() -> None:
 def set_group_about() -> None:
     """Setzt Group-Description falls Bot Admin-Rechte hat."""
     about = (
-        "HULKCOIN Crypto Signals — automatisierte News, Whale-Alerts "
+        "Crypto Signals — automatisierte News, Whale-Alerts "
         "und Trade-Setups alle 5 Min. /help für Commands. "
         "Keine Finanz-Beratung, DYOR."
     )

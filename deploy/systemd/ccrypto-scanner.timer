@@ -1,5 +1,5 @@
 [Unit]
-Description=HULKCOIN Crypto Trader — Scanner alle 5 Minuten (24/7)
+Description=Crypto Trader — Scanner alle 5 Minuten (24/7)
 Requires=ccrypto-scanner.service
 
 [Timer]

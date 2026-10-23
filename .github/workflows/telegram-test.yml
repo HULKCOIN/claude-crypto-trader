@@ -27,7 +27,7 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{
               \"chat_id\": \"$TELEGRAM_CHAT_ID\",
-              \"text\": \"🚀 *HULKCOIN Crypto Trader* — Connectivity Test\n\n✅ GitHub Actions → Telegram Bot works\n✅ Chat ID verified\n\nDu kannst jetzt vollständig loslegen.\",
+              \"text\": \"🚀 *Crypto Trader* — Connectivity Test\n\n✅ GitHub Actions → Telegram Bot works\n✅ Chat ID verified\n\nDu kannst jetzt vollständig loslegen.\",
               \"parse_mode\": \"Markdown\"
             }")
           echo "Response: $RESPONSE"

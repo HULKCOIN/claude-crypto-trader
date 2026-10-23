@@ -1,6 +1,6 @@
 # GCP Deployment Guide (deutsch)
 
-Komplette Anleitung um den HULKCOIN Crypto Trader auf einer eigenen
+Komplette Anleitung um den Crypto Trader auf einer eigenen
 Google Cloud VM in Frankfurt zu betreiben. **24/7 echter Binance-Zugang**
 (nicht geoblockt wie GitHub Actions US), **interaktiver Telegram-Bot** mit
 `/scan` `/open` `/close` Befehlen, **alle 5 Min** statt 15.

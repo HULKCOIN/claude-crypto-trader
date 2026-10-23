@@ -2,7 +2,7 @@
 """crypto-newsbot: Interaktiver News- und Research-Bot für Telegram-Gruppe.
 
 Was er kann:
-  - Begrüßt neue Mitglieder, erklärt kurz was HULKCOIN kann
+  - Begrüßt neue Mitglieder, erklärt kurz was der Bot kann
   - Beantwortet Fragen auf Deutsch (via Gemini) mit Kontext über das Trading-System
   - /scan /news /sentiment /whales /dex /research <topic> /help
   - Antwortet auf @mentions oder Replies auf seine Nachrichten
@@ -37,7 +37,7 @@ BOT_STATE = BRIDGE_DIR / "news_bot_state.json"
 
 # Welcome-Message für neue Mitglieder
 WELCOME_DE = (
-    "👋 Willkommen {name} bei *HULKCOIN Crypto Signals*!\n\n"
+    "👋 Willkommen {name} bei *Crypto Signals*!\n\n"
     "Ich bin der News- & Research-Bot. Hier bekommst du:\n"
     "📰 Live-Crypto-News (CoinDesk, Cointelegraph, Trending)\n"
     "🐋 Whale-Alerts (BTC, ETH, BSC Großtransfers)\n"
@@ -52,7 +52,7 @@ WELCOME_DE = (
 )
 
 HELP_DE = (
-    "*HULKCOIN News- & Research-Bot*\n\n"
+    "*Crypto News- & Research-Bot*\n\n"
     "📰 */news* — letzte 10 News-Items\n"
     "🐋 */whales* — Großtransfers der letzten Stunde\n"
     "📊 */sentiment* — Fear & Greed + Funding Rates\n"
@@ -69,7 +69,7 @@ HELP_DE = (
 )
 
 # System-Prompt für Gemini: Bot kennt das Trading-System
-GEMINI_SYSTEM = """Du bist der HULKCOIN News- & Research-Bot in einer deutschen Telegram-Gruppe.
+GEMINI_SYSTEM = """Du bist der Crypto News- & Research-Bot in einer deutschen Telegram-Gruppe.
 
 DEIN KONTEXT:
 - Du gehörst zu einem automatisierten Crypto-Trading-System.

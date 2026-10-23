@@ -1,5 +1,5 @@
 [Unit]
-Description=HULKCOIN Crypto Trader — Scanner + News + Whales + Push + Auto-Trader (one-shot)
+Description=Crypto Trader — Scanner + News + Whales + Push + Auto-Trader (one-shot)
 After=network-online.target
 Wants=network-online.target
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GCP VM Setup für HULKCOIN Crypto Trader
+# GCP VM Setup für Crypto Trader
 # -------------------------------------------
 # Lege eine always-free e2-micro VM in europe-west3 (Frankfurt) an.
 # Von dort ist Binance NICHT geoblockt. Kosten: 0 € nach Trial.
@@ -30,7 +30,7 @@ if [[ -z "$PROJECT_ID" ]]; then
 fi
 
 echo "============================================================"
-echo "🚀 HULKCOIN Crypto Trader → GCP Deployment"
+echo "🚀 Crypto Trader → GCP Deployment"
 echo "============================================================"
 echo "Projekt:      $PROJECT_ID"
 echo "VM-Name:      $VM_NAME"

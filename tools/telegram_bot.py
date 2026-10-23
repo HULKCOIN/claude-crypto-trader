@@ -67,7 +67,7 @@ def allowed_chat_ids() -> set[str]:
 
 def cmd_help() -> str:
     return (
-        "*HULKCOIN Crypto Signals Bot*\n\n"
+        "*Crypto Signals Bot*\n\n"
         "/scan — scan market now\n"
         "/signals — last 20 signals\n"
         "/positions — open positions\n"

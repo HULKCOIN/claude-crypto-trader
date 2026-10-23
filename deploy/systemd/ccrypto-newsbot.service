@@ -1,5 +1,5 @@
 [Unit]
-Description=HULKCOIN Crypto Trader — Interactive News Bot (long-polling daemon)
+Description=Crypto Trader — Interactive News Bot (long-polling daemon)
 After=network-online.target
 Wants=network-online.target
 
