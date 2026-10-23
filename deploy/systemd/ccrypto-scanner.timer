@@ -1,0 +1,12 @@
+[Unit]
+Description=HULKCOIN Crypto Trader — Scanner alle 5 Minuten (24/7)
+Requires=ccrypto-scanner.service
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=ccrypto-scanner.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

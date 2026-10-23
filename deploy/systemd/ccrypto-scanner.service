@@ -1,0 +1,19 @@
+[Unit]
+Description=HULKCOIN Crypto Trader — Scanner + News + Whales + Push + Auto-Trader (one-shot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ccrypto-trader
+EnvironmentFile=/opt/ccrypto-trader/.env
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/scanner.py
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/news.py
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/sentiment.py
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/onchain.py
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/alerts.py watch
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/push_signals.py --min-quality 0.4 --min-onchain-usd 1000000
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 bridge/pipeline_once.py --min-quality 0.5 --sims 2000 --max-per-run 3
+StandardOutput=append:/opt/ccrypto-trader/logs/scanner.log
+StandardError=append:/opt/ccrypto-trader/logs/scanner.log
+User=root

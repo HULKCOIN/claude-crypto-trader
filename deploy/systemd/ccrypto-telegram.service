@@ -1,0 +1,18 @@
+[Unit]
+Description=HULKCOIN Crypto Trader — Telegram Command Bot (long-polling daemon)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/ccrypto-trader
+EnvironmentFile=/opt/ccrypto-trader/.env
+ExecStart=/opt/ccrypto-trader/.venv/bin/python3 tools/telegram_bot.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/ccrypto-trader/logs/telegram.log
+StandardError=append:/opt/ccrypto-trader/logs/telegram.log
+User=root
+
+[Install]
+WantedBy=multi-user.target
