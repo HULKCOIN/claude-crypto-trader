@@ -157,10 +157,13 @@ def process_one(sig: dict, sims: int) -> dict | None:
     if not size:
         return {"status": "error", "step": "budget-parse", "msg": out[:500]}
 
-    # 5. policy — Rules-Decider zuerst
+    # 5. policy — Edge-Threshold. Via ENV MIN_EDGE_R überschreibbar.
+    #    Default: 0.0 (break-even+ Trades gehen durch). Setze auf -1.0 um
+    #    JEDEN Trade zuzulassen (nur Risk-Gate bleibt dann aktiv).
     er = tm.get("expected_r", 0)
-    if er < 0.2:
-        return {"status": "skip", "reason": f"E[R]={er} < 0.2 (Edge zu dünn)",
+    min_edge = float(os.environ.get("MIN_EDGE_R", "0.0"))
+    if er < min_edge:
+        return {"status": "skip", "reason": f"E[R]={er} < {min_edge} (Edge-Threshold)",
                 "plan": plan, "tm": tm, "risk": risk, "size": size}
 
     # 5b. Optional: Gemini-LLM-Review als zweite Meinung (nur wenn GEMINI_API_KEY)

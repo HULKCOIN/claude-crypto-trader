@@ -112,6 +112,11 @@ jobs:
           BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           BROKER_MODE_HINT: paper
+          # Edge-Filter weit auf (break-even+ reicht). Für ALLES: setze -1.0
+          MIN_EDGE_R: "0.0"
+          # Breitere ATR-Stops → raus aus dem 15m-Noise, höhere Target-Trefferquote
+          STOP_ATR_MULT: "2.5"
+          TARGET_ATR_MULT: "4.5"
         run: python3 bridge/pipeline_once.py --min-quality 0.5 --sims 2000 --max-per-run 3 || true
 
       - name: Position tracker (checkt offene Trades, pusht Close + PnL)
@@ -119,6 +124,16 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python3 bridge/position_tracker.py || true
+
+      - name: Telegram Command-Poll (beide Bots, 5-Min-Takt)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+          TELEGRAM_NEWS_BOT_TOKEN: ${{ secrets.TELEGRAM_NEWS_BOT_TOKEN }}
+          TELEGRAM_NEWS_CHAT_ID: ${{ secrets.TELEGRAM_NEWS_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: cd tools && python3 telegram_poll_once.py || true
 
       - name: Commit new signals + pipeline state
         run: |
@@ -137,6 +152,7 @@ jobs:
           git add data/snapshots/pushed_dedup.jsonl 2>/dev/null || true
           git add data/snapshots/seen_listings.jsonl 2>/dev/null || true
           git add data/snapshots/news_translations.json 2>/dev/null || true
+          git add data/snapshots/tg_offsets.json 2>/dev/null || true
           # Dex-Monitor dedup state
           mkdir -p data/snapshots
           if [ -f bridge/dex_seen.json ]; then

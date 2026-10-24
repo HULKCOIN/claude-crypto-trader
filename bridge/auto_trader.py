@@ -59,10 +59,11 @@ def policy(proposal: dict) -> tuple[bool, str]:
 
     if risk.get("verdict") != "PASS":
         return False, f"risk={risk.get('verdict')}"
-    if tm.get("verdict") != "edge_positive":
-        return False, f"timemachine={tm.get('verdict')} E[R]={tm.get('expected_r')}"
-    if (tm.get("expected_r") or 0) < 0.25:
-        return False, f"E[R]={tm.get('expected_r')} below threshold 0.25"
+    # Edge-Threshold via ENV MIN_EDGE_R überschreibbar. Default 0.0 =
+    # break-even+ reicht. Setze MIN_EDGE_R=-1.0 um JEDES Signal durchzulassen.
+    min_edge = float(os.environ.get("MIN_EDGE_R", "0.0"))
+    if (tm.get("expected_r") or 0) < min_edge:
+        return False, f"E[R]={tm.get('expected_r')} below MIN_EDGE_R={min_edge}"
     if plan.get("side") == "long" and sent.get("verdict") == "market_extended_long":
         return False, "sentiment: market extended long"
     return True, "edge + risk ok"

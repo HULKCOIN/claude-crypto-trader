@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -12,12 +13,18 @@ from _common import PLANS_DIR, atr, binance_klines, to_candles, write_signal
 
 
 def main() -> int:
+    # Defaults können via ENV überschrieben werden damit Pipeline nicht
+    # jedesmal Flags setzen muss. STOP_ATR_MULT=2.5 / TARGET_ATR_MULT=4.5
+    # gibt deutlich breitere Stops → raus aus dem 15m-Noise.
+    default_stop = float(os.environ.get("STOP_ATR_MULT", "2.5"))
+    default_target = float(os.environ.get("TARGET_ATR_MULT", "4.5"))
+
     p = argparse.ArgumentParser()
     p.add_argument("--symbol", required=True)
     p.add_argument("--entry", type=float, required=True)
     p.add_argument("--side", default="long", choices=["long", "short"])
-    p.add_argument("--stop-atr-mult", type=float, default=1.5)
-    p.add_argument("--target-atr-mult", type=float, default=2.5)
+    p.add_argument("--stop-atr-mult", type=float, default=default_stop)
+    p.add_argument("--target-atr-mult", type=float, default=default_target)
     p.add_argument("--timeframe", default="15m")
     args = p.parse_args()
 
